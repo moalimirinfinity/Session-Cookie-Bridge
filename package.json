@@ -1,0 +1,22 @@
+{
+  "name": "session-cookie-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Private multi-platform cookie export extension (MV3) with Medium adapter v1.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "package:zip": "npm run build && node scripts/package-zip.mjs"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.2.1",
+    "@types/chrome": "^0.1.24",
+    "@types/node": "^22.13.5",
+    "archiver": "^7.0.1",
+    "typescript": "^5.7.3",
+    "vite": "^7.2.4",
+    "vitest": "^2.1.9"
+  }
+}

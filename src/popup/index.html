@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Session Cookie Bridge</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app-header">
+        <h1>Session Cookie Bridge</h1>
+        <p>Extract Medium cookies and copy import-ready outputs.</p>
+      </header>
+
+      <section class="panel">
+        <label for="platformSelect">Platform</label>
+        <div class="row">
+          <select id="platformSelect" aria-label="Platform selector"></select>
+          <button id="extractButton" type="button">Extract Cookies</button>
+        </div>
+        <p class="helper-text">Data stays in memory and is cleared when this popup closes.</p>
+      </section>
+
+      <section id="statusPanel" class="panel status info" role="status" aria-live="polite">
+        Select a platform and extract cookies.
+      </section>
+
+      <section id="healthPanel" class="panel hidden">
+        <div class="section-head">
+          <h2>Required Cookie Health</h2>
+          <span id="requiredSummary" class="summary neutral">0/0 present</span>
+        </div>
+        <ul id="requiredList" class="required-list"></ul>
+      </section>
+
+      <section id="resultPanel" class="panel hidden">
+        <h2>Captured Output</h2>
+        <div class="meta" id="metaLine"></div>
+
+        <div class="output-block">
+          <div class="output-head">
+            <label for="cookieHeaderPreview">Cookie Header</label>
+            <button id="copyHeaderButton" type="button">Copy Header</button>
+          </div>
+          <textarea id="cookieHeaderPreview" readonly></textarea>
+        </div>
+
+        <div class="output-block">
+          <div class="output-head">
+            <label for="envBlockPreview">.env Block</label>
+            <button id="copyEnvButton" type="button">Copy .env</button>
+          </div>
+          <textarea id="envBlockPreview" readonly></textarea>
+        </div>
+
+        <div class="output-block">
+          <div class="output-head">
+            <label for="cliSnippetPreview">CLI Snippet</label>
+            <button id="copyCliButton" type="button">Copy CLI</button>
+          </div>
+          <textarea id="cliSnippetPreview" readonly></textarea>
+        </div>
+
+        <div class="actions">
+          <button id="exportJsonButton" type="button">Export JSON</button>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
