@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
+    "icons:generate": "python3 scripts/generate-minimal-icons.py",
     "package:zip": "npm run build && node scripts/package-zip.mjs"
   },
   "devDependencies": {
