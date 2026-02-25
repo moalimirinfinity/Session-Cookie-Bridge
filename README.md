@@ -156,6 +156,24 @@ Automated tests cover:
 - [ ] JSON export downloads correctly
 - [ ] Host permission denial path handled cleanly
 
+## Final Sanity Record
+
+Run date: February 25, 2026 (local)
+
+- Automated checks passed:
+  - `npm run icons:generate` (deterministic output verified)
+  - `npm run build`
+  - `npm run test` (11/11 passing)
+  - `file public/icons/*.png` (16/32/48/128 confirmed)
+  - `dist/icons/*` present after build
+  - `dist/manifest.json` icon mappings verified
+  - No `chrome.storage`, `localStorage`, or `sessionStorage` usage found in `src/`
+- Manual runtime checks remain to be completed in Chromium:
+  - reload unpacked extension from `dist/`
+  - verify toolbar/extension icon visibility
+  - verify signed-in extract + copy/export flows
+  - verify no user-gesture permission error
+
 ## Extending to Another Platform
 
 1. Add a new adapter in `src/platforms/<platform>.adapter.ts`
