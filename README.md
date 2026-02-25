@@ -65,6 +65,18 @@ npm run package:zip
 
 Creates a versioned zip under `dist/releases/`.
 
+## Icon Assets
+
+Extension icons are generated assets under `public/icons/`.
+
+To regenerate all icon sizes (`16`, `32`, `48`, `128`):
+
+```bash
+npm run icons:generate
+```
+
+`src/manifest.ts` references these files directly for extension and action icons.
+
 ## Popup Flow (V1)
 
 1. Select platform (Medium)
