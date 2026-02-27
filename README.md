@@ -1,184 +1,123 @@
-# Session Cookie Bridge
+# Session Cookie Bridge v2
 
-Private Chromium MV3 extension for extracting signed-in session cookies and exporting import-ready artifacts.
+Private Chromium MV3 extension for best-effort cookie session transfer:
+- Export signed session artifacts from any http(s) site.
+- Verify artifact integrity/signature.
+- Import verified artifacts back into browser cookies with per-cookie reporting.
 
 ## Sensitive Data Warning
-This extension handles authentication cookies. Treat all copied/exported outputs as secrets.
+This extension handles authentication cookies and signed session artifacts.
 
-- Do not commit outputs to git.
-- Do not send outputs to shared chats.
-- Rotate sessions if a cookie leaks.
+- Treat exported JSON as secrets.
+- Do not commit artifacts to git.
+- Rotate sessions immediately if data leaks.
 
-## V1 Scope
+## Scope and Limits
 
-- Chromium-first (`chrome`, `brave`, `edge` unpacked extension)
-- Medium adapter enabled (`medium.com`)
-- Output actions:
-  - Copy Cookie header
-  - Copy `.env` block
-  - Copy CLI import snippet
-  - Export JSON artifact
-- No persistent cookie storage in extension storage
+### In scope
+- Cookie-based session export/import only.
+- Signed artifact integrity checks (ECDSA P-256 + SHA-256).
+- Runtime host permission prompts per target host/domain.
+- Legacy v1 Medium artifact import compatibility (auto-converted to v2).
+
+### Out of scope
+- `localStorage`, IndexedDB, service worker token migration.
+- Guaranteed replay on all platforms.
+
+Some sites use device binding, anti-hijack, or server-side checks that can invalidate imported cookies even when import is successful.
 
 ## Architecture
-
-- `src/platforms/types.ts`: `PlatformAdapter` interface (extensible site-adapter model)
-- `src/platforms/registry.ts`: active adapters registry
-- `src/platforms/medium.adapter.ts`: Medium-specific mapping/formatting
-- `src/background/index.ts`: typed message router + cookie API access
-- `src/popup/*`: UI flow and clipboard/export actions
-- `src/core/*`: cookie/format/validation/export orchestration
-- `src/shared/*`: stable message contracts and shared types
+- `src/shared/types.ts`: v2 artifact, cookie, signature, import-report, legacy compatibility types.
+- `src/shared/messages.ts`: new message contract + one-cycle legacy constants.
+- `src/core/canonicalJson.ts`: deterministic canonical JSON utility for signing.
+- `src/core/signingService.ts`: key management, signing, verification, fingerprinting.
+- `src/core/cookieService.ts`: cookie read/set APIs, host-pattern planning, import report generation.
+- `src/core/exportService.ts`: signed v2 export + legacy bundle shim.
+- `src/core/importService.ts`: artifact parse, v1 conversion, signature verification, cookie-constraint validation, import orchestration.
+- `src/background/index.ts`: typed message router for export/verify/import/copy and legacy shims.
+- `src/popup/*`: two-tab export/import UI.
+- `src/platforms/*`: optional legacy profile/adapters (Medium kept for shim/hints).
 
 ## Permissions Model
 
-`manifest_version: 3`
+Manifest (`MV3`) permissions:
+- `cookies`
+- `clipboardWrite`
+- `downloads`
+- `activeTab`
 
-- `permissions`
-  - `cookies`
-  - `clipboardWrite`
-  - `downloads`
-  - `activeTab`
-- `optional_host_permissions`
-  - `https://medium.com/*`
+Host permissions:
+- `optional_host_permissions: ["*://*/*"]`
+- Runtime prompts are scoped to exact required host patterns.
 
-Host permission is requested at runtime when you click `Extract Cookies`.
+## Artifact Schema v2
 
-## Build and Local Install
+Signed export shape:
+- `schema_version: 2`
+- `artifact_id`
+- `created_at_utc`
+- `source`
+  - `target_url`
+  - `origin`
+  - `captured_by_extension_version`
+- `cookies: CookieRecordV2[]`
+- `derived`
+  - `cookie_header`
+  - `cookie_count`
+- `signature`
+  - `alg: "ECDSA_P256_SHA256"`
+  - `key_id`
+  - `public_key_jwk`
+  - `payload_sha256`
+  - `signature_base64url`
+  - `signed_at_utc`
+
+## Popup Flows
+
+### Export tab
+1. Use active tab URL or enter target URL manually.
+2. Request host permission (exact host pattern).
+3. Export signed artifact.
+4. Copy cookie header / copy JSON / download JSON.
+
+### Import tab
+1. Paste or upload artifact JSON.
+2. Verify signature.
+3. Import session cookies.
+4. Inspect import report (`imported`, `failed`, `skipped`) per cookie.
+
+## Legacy Compatibility
+
+For one release cycle:
+- Legacy message constants remain available in background router.
+- Legacy v1 payload import is supported by converting to v2 and re-signing locally before import.
+
+## Build and Load
 
 ```bash
 npm install
 npm run build
 ```
 
-Then open `chrome://extensions`:
+Then:
+1. Open `chrome://extensions`
+2. Enable `Developer mode`
+3. `Load unpacked` -> select `dist/`
 
-1. Enable `Developer mode`
-2. Click `Load unpacked`
-3. Select the built output folder `dist/`
-
-## Packaging Zip Artifact
-
-```bash
-npm run package:zip
-```
-
-Creates a versioned zip under `dist/releases/`.
-
-## Icon Assets
-
-Extension icons are generated assets under `public/icons/`.
-
-To regenerate all icon sizes (`16`, `32`, `48`, `128`):
-
-```bash
-npm run icons:generate
-```
-
-`src/manifest.ts` references these files directly for extension and action icons.
-
-## Popup Flow (V1)
-
-1. Select platform (Medium)
-2. Click `Extract Cookies`
-3. Approve host permission prompt if requested
-4. Review required-cookie health (`sid`, `uid`, `xsrf`)
-5. Use one-click actions:
-   - `Copy Cookie Header`
-   - `Copy .env Block`
-   - `Copy CLI Snippet`
-   - `Export JSON`
-
-Error states are surfaced for:
-
-- permission denied
-- not signed in (missing required cookies)
-- runtime/API failures
-
-## Medium Output Formats
-
-### Cookie Header
-
-```text
-sid=...; uid=...; xsrf=...; cf_clearance=...; _cfuvid=...; ...rest-alpha
-```
-
-### `.env` Block
-
-```env
-MEDIUM_SESSION=""
-MEDIUM_SESSION_SID="..."
-MEDIUM_SESSION_UID="..."
-MEDIUM_SESSION_XSRF="..."
-MEDIUM_SESSION_CF_CLEARANCE=""
-MEDIUM_SESSION_CFUVID=""
-MEDIUM_CSRF=""
-MEDIUM_USER_REF=""
-```
-
-### CLI Snippet
-
-```bash
-uv run bot auth-import --cookie-header 'sid=...; uid=...; xsrf=...'
-```
-
-### JSON Payload (schema v1)
-
-- `schema_version: 1`
-- `platform: "medium"`
-- `created_at_utc`
-- `cookie_header`
-- `cookies` (name/value map)
-- `required_present`
-- `env_block`
-- `cli_import_snippet`
-
-## Testing
+## Tests
 
 ```bash
 npm run test
 ```
 
-Automated tests cover:
+Coverage includes:
+- Message contract validation (v2 + legacy shim).
+- Signed export generation and tamper detection.
+- Import verification, partial-failure behavior, unsupported cookie handling.
+- Cookie mapping and host-pattern derivation.
+- Legacy v1 conversion path.
 
-- adapter cookie detection and output formatting
-- header ordering and CLI escaping
-- extraction error shape for missing required cookies
-- schema validation correctness
-- message request/response contract validation
-- no-persistence guard (no `chrome.storage`/`localStorage` usage)
+## Current Validation (Feb 27, 2026)
 
-## Manual Validation Checklist
-
-- [ ] Medium signed in: extraction succeeds
-- [ ] Medium signed out: not-signed-in error shown
-- [ ] Clipboard copy works for header/env/CLI
-- [ ] JSON export downloads correctly
-- [ ] Host permission denial path handled cleanly
-
-## Final Sanity Record
-
-Run date: February 25, 2026 (local)
-
-- Automated checks passed:
-  - `npm run icons:generate` (deterministic output verified)
-  - `npm run build`
-  - `npm run test` (11/11 passing)
-  - `file public/icons/*.png` (16/32/48/128 confirmed)
-  - `dist/icons/*` present after build
-  - `dist/manifest.json` icon mappings verified
-  - No `chrome.storage`, `localStorage`, or `sessionStorage` usage found in `src/`
-- Manual runtime checks remain to be completed in Chromium:
-  - reload unpacked extension from `dist/`
-  - verify toolbar/extension icon visibility
-  - verify signed-in extract + copy/export flows
-  - verify no user-gesture permission error
-
-## Extending to Another Platform
-
-1. Add a new adapter in `src/platforms/<platform>.adapter.ts`
-2. Implement `PlatformAdapter` methods
-3. Register adapter in `src/platforms/registry.ts`
-4. Add adapter tests and output fixtures
-
-Core extraction/export logic should not require refactors for new platforms.
+- `npm run test` passed.
+- `npm run build` passed.
