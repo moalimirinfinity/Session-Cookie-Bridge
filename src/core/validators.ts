@@ -26,6 +26,23 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isIsoTimestamp(value: string): boolean {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed);
+}
+
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isBase64Url(value: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(value);
+}
+
 function isCookieSameSite(value: unknown): value is CookieRecordV2["sameSite"] {
   return value === "no_restriction" || value === "lax" || value === "strict" || value === "unspecified";
 }
@@ -61,26 +78,48 @@ export function validateSessionArtifactPayloadV2(payload: SessionArtifactPayload
   if (payload.schema_version !== 2) {
     issues.push("schema_version must be 2");
   }
-  if (!payload.artifact_id) {
-    issues.push("artifact_id is required");
+  if (!payload.artifact_id || !isUuidLike(payload.artifact_id)) {
+    issues.push("artifact_id must be a UUID");
   }
-  if (!payload.created_at_utc) {
-    issues.push("created_at_utc is required");
+  if (!payload.created_at_utc || !isIsoTimestamp(payload.created_at_utc)) {
+    issues.push("created_at_utc must be a valid ISO timestamp");
   }
-  if (!payload.source?.target_url) {
+
+  if (!payload.source?.target_url || !isNonEmptyString(payload.source.target_url)) {
     issues.push("source.target_url is required");
+  } else {
+    try {
+      const parsedUrl = new URL(payload.source.target_url);
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        issues.push("source.target_url must use http(s)");
+      }
+      if (!payload.source.origin || parsedUrl.origin !== payload.source.origin) {
+        issues.push("source.origin must match source.target_url origin");
+      }
+    } catch {
+      issues.push("source.target_url must be a valid URL");
+    }
   }
-  if (!payload.source?.origin) {
+
+  if (!payload.source?.origin || !isNonEmptyString(payload.source.origin)) {
     issues.push("source.origin is required");
   }
-  if (!payload.source?.captured_by_extension_version) {
+  if (!payload.source?.captured_by_extension_version || !isNonEmptyString(payload.source.captured_by_extension_version)) {
     issues.push("source.captured_by_extension_version is required");
   }
+
   if (!Array.isArray(payload.cookies)) {
     issues.push("cookies must be an array");
   } else {
+    const seenCookieKeys = new Set<string>();
     for (const cookie of payload.cookies) {
       issues.push(...validateCookieRecordV2(cookie));
+      const key = `${cookie.name}|${cookie.domain}|${cookie.path}`;
+      if (seenCookieKeys.has(key)) {
+        issues.push(`duplicate cookie entry detected (${key})`);
+      } else {
+        seenCookieKeys.add(key);
+      }
     }
   }
   if (!payload.derived?.cookie_header) {
@@ -88,6 +127,8 @@ export function validateSessionArtifactPayloadV2(payload: SessionArtifactPayload
   }
   if (!Number.isInteger(payload.derived?.cookie_count) || (payload.derived?.cookie_count ?? -1) < 0) {
     issues.push("derived.cookie_count must be a non-negative integer");
+  } else if (Array.isArray(payload.cookies) && payload.derived.cookie_count !== payload.cookies.length) {
+    issues.push("derived.cookie_count must equal cookies.length");
   }
   return issues;
 }
@@ -97,19 +138,19 @@ export function validateSignatureEnvelopeV2(signature: SignatureEnvelopeV2): str
   if (signature.alg !== "ECDSA_P256_SHA256") {
     issues.push("signature.alg must be ECDSA_P256_SHA256");
   }
-  if (!signature.key_id) {
-    issues.push("signature.key_id is required");
+  if (!signature.key_id || !isUuidLike(signature.key_id)) {
+    issues.push("signature.key_id must be a UUID");
   }
   if (!isObject(signature.public_key_jwk)) {
     issues.push("signature.public_key_jwk is required");
   }
-  if (!signature.payload_sha256) {
+  if (!signature.payload_sha256 || !isBase64Url(signature.payload_sha256)) {
     issues.push("signature.payload_sha256 is required");
   }
-  if (!signature.signature_base64url) {
+  if (!signature.signature_base64url || !isBase64Url(signature.signature_base64url)) {
     issues.push("signature.signature_base64url is required");
   }
-  if (!signature.signed_at_utc) {
+  if (!signature.signed_at_utc || !isIsoTimestamp(signature.signed_at_utc)) {
     issues.push("signature.signed_at_utc is required");
   }
   return issues;
@@ -157,12 +198,12 @@ export function isSessionArtifactV2(value: unknown): value is SessionArtifactV2 
   if (!isObject(value) || value.schema_version !== 2) {
     return false;
   }
-  return validateSessionArtifactV2(value as SessionArtifactV2).length === 0;
+  return validateSessionArtifactV2(value as unknown as SessionArtifactV2).length === 0;
 }
 
 export function isExportPayloadV1(value: unknown): value is ExportPayloadV1 {
   if (!isObject(value) || value.schema_version !== 1) {
     return false;
   }
-  return validateExportPayloadV1(value as ExportPayloadV1).length === 0;
+  return validateExportPayloadV1(value as unknown as ExportPayloadV1).length === 0;
 }
