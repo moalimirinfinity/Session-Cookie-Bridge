@@ -1,4 +1,11 @@
-import type { CookieMap, ExportPayloadV1 } from "../shared/types";
+import type {
+  CookieMap,
+  CookieRecordV2,
+  ExportPayloadV1,
+  SessionArtifactPayloadV2,
+  SessionArtifactV2,
+  SignatureEnvelopeV2
+} from "../shared/types";
 
 export function requiredPresence(cookies: CookieMap, requiredCookies: readonly string[]): Record<string, boolean> {
   const presence: Record<string, boolean> = {};
@@ -15,13 +22,115 @@ export function missingRequiredCookies(presence: Record<string, boolean>): strin
     .sort();
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isCookieSameSite(value: unknown): value is CookieRecordV2["sameSite"] {
+  return value === "no_restriction" || value === "lax" || value === "strict" || value === "unspecified";
+}
+
+export function validateCookieRecordV2(cookie: CookieRecordV2): string[] {
+  const issues: string[] = [];
+  if (!cookie.name) {
+    issues.push("cookie.name is required");
+  }
+  if (typeof cookie.value !== "string") {
+    issues.push("cookie.value must be a string");
+  }
+  if (!cookie.domain) {
+    issues.push(`cookie.domain is required (${cookie.name || "unknown"})`);
+  }
+  if (!cookie.path || !cookie.path.startsWith("/")) {
+    issues.push(`cookie.path must start with '/' (${cookie.name || "unknown"})`);
+  }
+  if (!isCookieSameSite(cookie.sameSite)) {
+    issues.push(`cookie.sameSite is invalid (${cookie.name || "unknown"})`);
+  }
+  if (cookie.expirationDate !== undefined && (!Number.isFinite(cookie.expirationDate) || cookie.expirationDate <= 0)) {
+    issues.push(`cookie.expirationDate is invalid (${cookie.name || "unknown"})`);
+  }
+  if (!cookie.storeId) {
+    issues.push(`cookie.storeId is required (${cookie.name || "unknown"})`);
+  }
+  return issues;
+}
+
+export function validateSessionArtifactPayloadV2(payload: SessionArtifactPayloadV2): string[] {
+  const issues: string[] = [];
+  if (payload.schema_version !== 2) {
+    issues.push("schema_version must be 2");
+  }
+  if (!payload.artifact_id) {
+    issues.push("artifact_id is required");
+  }
+  if (!payload.created_at_utc) {
+    issues.push("created_at_utc is required");
+  }
+  if (!payload.source?.target_url) {
+    issues.push("source.target_url is required");
+  }
+  if (!payload.source?.origin) {
+    issues.push("source.origin is required");
+  }
+  if (!payload.source?.captured_by_extension_version) {
+    issues.push("source.captured_by_extension_version is required");
+  }
+  if (!Array.isArray(payload.cookies)) {
+    issues.push("cookies must be an array");
+  } else {
+    for (const cookie of payload.cookies) {
+      issues.push(...validateCookieRecordV2(cookie));
+    }
+  }
+  if (!payload.derived?.cookie_header) {
+    issues.push("derived.cookie_header is required");
+  }
+  if (!Number.isInteger(payload.derived?.cookie_count) || (payload.derived?.cookie_count ?? -1) < 0) {
+    issues.push("derived.cookie_count must be a non-negative integer");
+  }
+  return issues;
+}
+
+export function validateSignatureEnvelopeV2(signature: SignatureEnvelopeV2): string[] {
+  const issues: string[] = [];
+  if (signature.alg !== "ECDSA_P256_SHA256") {
+    issues.push("signature.alg must be ECDSA_P256_SHA256");
+  }
+  if (!signature.key_id) {
+    issues.push("signature.key_id is required");
+  }
+  if (!isObject(signature.public_key_jwk)) {
+    issues.push("signature.public_key_jwk is required");
+  }
+  if (!signature.payload_sha256) {
+    issues.push("signature.payload_sha256 is required");
+  }
+  if (!signature.signature_base64url) {
+    issues.push("signature.signature_base64url is required");
+  }
+  if (!signature.signed_at_utc) {
+    issues.push("signature.signed_at_utc is required");
+  }
+  return issues;
+}
+
+export function validateSessionArtifactV2(artifact: SessionArtifactV2): string[] {
+  const issues = validateSessionArtifactPayloadV2(artifact);
+  if (!artifact.signature) {
+    issues.push("signature is required");
+    return issues;
+  }
+  return issues.concat(validateSignatureEnvelopeV2(artifact.signature));
+}
+
 export function validateExportPayloadV1(payload: ExportPayloadV1): string[] {
   const issues: string[] = [];
   if (payload.schema_version !== 1) {
     issues.push("schema_version must be 1");
   }
-  if (payload.platform !== "medium") {
-    issues.push("platform must be 'medium' in v1");
+  if (!payload.platform) {
+    issues.push("platform is required");
   }
   if (!payload.created_at_utc) {
     issues.push("created_at_utc is required");
@@ -29,10 +138,10 @@ export function validateExportPayloadV1(payload: ExportPayloadV1): string[] {
   if (!payload.cookie_header) {
     issues.push("cookie_header is required");
   }
-  if (typeof payload.cookies !== "object" || payload.cookies === null) {
+  if (!isObject(payload.cookies)) {
     issues.push("cookies must be an object");
   }
-  if (typeof payload.required_present !== "object" || payload.required_present === null) {
+  if (!isObject(payload.required_present)) {
     issues.push("required_present must be an object");
   }
   if (!payload.env_block) {
@@ -42,4 +151,18 @@ export function validateExportPayloadV1(payload: ExportPayloadV1): string[] {
     issues.push("cli_import_snippet is required");
   }
   return issues;
+}
+
+export function isSessionArtifactV2(value: unknown): value is SessionArtifactV2 {
+  if (!isObject(value) || value.schema_version !== 2) {
+    return false;
+  }
+  return validateSessionArtifactV2(value as SessionArtifactV2).length === 0;
+}
+
+export function isExportPayloadV1(value: unknown): value is ExportPayloadV1 {
+  if (!isObject(value) || value.schema_version !== 1) {
+    return false;
+  }
+  return validateExportPayloadV1(value as ExportPayloadV1).length === 0;
 }
