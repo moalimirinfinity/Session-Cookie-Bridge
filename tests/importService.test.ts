@@ -190,6 +190,18 @@ describe("importService", () => {
         hostOnly: true,
         session: false,
         storeId: "0"
+      },
+      {
+        name: "cross-site",
+        value: "c",
+        domain: "example.com",
+        path: "/",
+        secure: false,
+        httpOnly: false,
+        sameSite: "no_restriction",
+        hostOnly: true,
+        session: true,
+        storeId: "0"
       }
     ], signing);
     expect(artifact.ok).toBe(true);
@@ -222,8 +234,8 @@ describe("importService", () => {
     expect(result.error.code).toBe("IMPORT_FAILED");
     expect(result.error.details?.report).toMatchObject({
       imported: 0,
-      skipped: 2,
-      total: 2
+      skipped: 3,
+      total: 3
     });
   });
 });
