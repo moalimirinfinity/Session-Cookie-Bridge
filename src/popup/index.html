@@ -9,34 +9,32 @@
   <body>
     <main class="app">
       <header class="app-header">
-        <h1>Session Cookie Bridge</h1>
-        <p>Extract Medium cookies and copy import-ready outputs.</p>
+        <h1>Session Cookie Bridge v2</h1>
+        <p>Best-effort cookie session export/import with signed artifacts.</p>
+        <p class="warning-line">Sensitive data: treat exported artifacts as secrets.</p>
       </header>
 
-      <section class="panel">
-        <label for="platformSelect">Platform</label>
-        <div class="row">
-          <select id="platformSelect" aria-label="Platform selector"></select>
-          <button id="extractButton" type="button">Extract Cookies</button>
-        </div>
-        <p class="helper-text">Data stays in memory and is cleared when this popup closes.</p>
-      </section>
+      <nav class="tabs" aria-label="Session actions">
+        <button id="tabExportButton" class="tab active" type="button" data-tab="export">Export</button>
+        <button id="tabImportButton" class="tab" type="button" data-tab="import">Import</button>
+      </nav>
 
       <section id="statusPanel" class="panel status info" role="status" aria-live="polite">
-        Select a platform and extract cookies.
+        Ready. Choose Export or Import.
       </section>
 
-      <section id="healthPanel" class="panel hidden">
-        <div class="section-head">
-          <h2>Required Cookie Health</h2>
-          <span id="requiredSummary" class="summary neutral">0/0 present</span>
+      <section id="exportPanel" class="panel tab-panel">
+        <h2>Export Signed Session</h2>
+        <label for="targetUrlInput">Target URL</label>
+        <div class="row">
+          <input id="targetUrlInput" type="url" placeholder="https://example.com/" />
+          <button id="detectTabButton" type="button">Use Active Tab</button>
         </div>
-        <ul id="requiredList" class="required-list"></ul>
-      </section>
 
-      <section id="resultPanel" class="panel hidden">
-        <h2>Captured Output</h2>
-        <div class="meta" id="metaLine"></div>
+        <div class="row row-actions">
+          <button id="requestPermissionButton" type="button">Request Permission</button>
+          <button id="exportSessionButton" type="button">Export Signed Session</button>
+        </div>
 
         <div class="output-block">
           <div class="output-head">
@@ -47,24 +45,48 @@
         </div>
 
         <div class="output-block">
-          <div class="output-head">
-            <label for="envBlockPreview">.env Block</label>
-            <button id="copyEnvButton" type="button">Copy .env</button>
-          </div>
-          <textarea id="envBlockPreview" readonly></textarea>
+          <label for="fingerprintPreview">Signer Fingerprint</label>
+          <input id="fingerprintPreview" type="text" readonly />
         </div>
 
         <div class="output-block">
           <div class="output-head">
-            <label for="cliSnippetPreview">CLI Snippet</label>
-            <button id="copyCliButton" type="button">Copy CLI</button>
+            <label for="artifactPreview">Signed Artifact JSON</label>
+            <button id="copyArtifactButton" type="button">Copy JSON</button>
           </div>
-          <textarea id="cliSnippetPreview" readonly></textarea>
+          <textarea id="artifactPreview" readonly></textarea>
         </div>
 
         <div class="actions">
-          <button id="exportJsonButton" type="button">Export JSON</button>
+          <button id="downloadArtifactButton" type="button">Download Signed JSON</button>
         </div>
+      </section>
+
+      <section id="importPanel" class="panel tab-panel hidden">
+        <h2>Verify and Import Session</h2>
+        <label for="artifactFileInput">Artifact File (optional)</label>
+        <input id="artifactFileInput" type="file" accept=".json,application/json" />
+
+        <div class="output-block">
+          <label for="artifactInput">Artifact JSON</label>
+          <textarea id="artifactInput" placeholder='{"schema_version":2,...}'></textarea>
+        </div>
+
+        <div class="row row-actions">
+          <button id="verifyArtifactButton" type="button">Verify Artifact</button>
+          <button id="importSessionButton" type="button">Import Session</button>
+        </div>
+
+        <section id="verifyPanel" class="panel nested hidden">
+          <h3>Verification</h3>
+          <div id="verifySummary" class="meta"></div>
+        </section>
+
+        <section id="importReportPanel" class="panel nested hidden">
+          <h3>Import Report</h3>
+          <div id="importSummary" class="meta"></div>
+          <ul id="importResultsList" class="result-list"></ul>
+        </section>
       </section>
     </main>
 
