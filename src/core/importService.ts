@@ -97,6 +97,10 @@ function validateCookieImportConstraints(record: CookieRecordV2, nowEpochSeconds
     return "Cookie path must start with '/'.";
   }
 
+  if (record.sameSite === "no_restriction" && !record.secure) {
+    return "SameSite=None cookies must be secure.";
+  }
+
   if (record.name.startsWith("__Host-")) {
     if (!record.secure) {
       return "__Host- cookies must be secure.";
@@ -247,9 +251,10 @@ export async function importNormalizedArtifact(
   }
 
   const unsupported = buildUnsupportedEntries(normalized.artifact);
-  const unsupportedLookup = new Map(
-    unsupported.map((entry) => [`${entry.name}|${entry.domain}|${entry.path}`, entry.reason] as const)
-  );
+  const unsupportedLookup = new Map<string, string>();
+  for (const entry of unsupported) {
+    unsupportedLookup.set(`${entry.name}|${entry.domain}|${entry.path}`, entry.reason);
+  }
   const importableCookies = normalized.artifact.cookies.filter((cookie) => {
     const key = `${cookie.name}|${cookie.domain}|${cookie.path}`;
     return !unsupportedLookup.has(key);
