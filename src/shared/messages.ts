@@ -3,6 +3,7 @@ import type {
   BridgeErrorCode,
   CopyFieldResult,
   DownloadResult,
+  ExtractionBundle,
   ExportSessionResult,
   ImportSessionResult,
   ResponseEnvelope,
@@ -66,12 +67,26 @@ export interface RequestPlatformDataMessage {
   platform_id: string;
 }
 
-export interface LegacyCopyMessage {
-  type:
-    | typeof MESSAGE_COPY_COOKIE_HEADER
-    | typeof MESSAGE_COPY_ENV_BLOCK
-    | typeof MESSAGE_COPY_CLI_SNIPPET
-    | typeof MESSAGE_EXPORT_JSON;
+export interface CopyCookieHeaderMessage {
+  type: typeof MESSAGE_COPY_COOKIE_HEADER;
+  platform_id: string;
+  cookies: Record<string, string>;
+}
+
+export interface CopyEnvBlockMessage {
+  type: typeof MESSAGE_COPY_ENV_BLOCK;
+  platform_id: string;
+  cookies: Record<string, string>;
+}
+
+export interface CopyCliSnippetMessage {
+  type: typeof MESSAGE_COPY_CLI_SNIPPET;
+  platform_id: string;
+  cookies: Record<string, string>;
+}
+
+export interface ExportJsonMessage {
+  type: typeof MESSAGE_EXPORT_JSON;
   platform_id: string;
   cookies: Record<string, string>;
 }
@@ -83,7 +98,10 @@ export type BridgeRequestMessage =
   | ImportSessionMessage
   | CopyFieldMessage
   | RequestPlatformDataMessage
-  | LegacyCopyMessage;
+  | CopyCookieHeaderMessage
+  | CopyEnvBlockMessage
+  | CopyCliSnippetMessage
+  | ExportJsonMessage;
 
 export type ActiveTabContextResponse = ResponseEnvelope<ActiveTabContext>;
 export type ExportSessionResponse = ResponseEnvelope<ExportSessionResult>;
@@ -91,6 +109,7 @@ export type VerifyArtifactResponse = ResponseEnvelope<VerifyArtifactResult>;
 export type ImportSessionResponse = ResponseEnvelope<ImportSessionResult>;
 export type CopyFieldResponse = ResponseEnvelope<CopyFieldResult>;
 export type ExportJsonResponse = ResponseEnvelope<DownloadResult>;
+export type LegacyPlatformDataResponse = ResponseEnvelope<ExtractionBundle>;
 
 export type BridgeResponseMessage =
   | ActiveTabContextResponse
@@ -98,6 +117,7 @@ export type BridgeResponseMessage =
   | VerifyArtifactResponse
   | ImportSessionResponse
   | CopyFieldResponse
+  | LegacyPlatformDataResponse
   | ExportJsonResponse;
 
 const BRIDGE_ERROR_CODES: readonly BridgeErrorCode[] = [
