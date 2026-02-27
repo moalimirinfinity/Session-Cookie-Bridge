@@ -1,48 +1,51 @@
-import { listPlatformAdapters } from "../platforms/registry";
 import {
   isResponseEnvelope,
-  MESSAGE_COPY_CLI_SNIPPET,
-  MESSAGE_COPY_COOKIE_HEADER,
-  MESSAGE_COPY_ENV_BLOCK,
-  MESSAGE_EXPORT_JSON,
-  MESSAGE_REQUEST_PLATFORM_DATA,
+  MESSAGE_COPY_FIELD,
+  MESSAGE_EXPORT_SESSION,
+  MESSAGE_IMPORT_SESSION,
+  MESSAGE_REQUEST_ACTIVE_TAB_CONTEXT,
+  MESSAGE_VERIFY_ARTIFACT,
   type BridgeRequestMessage,
   type BridgeResponseMessage
 } from "../shared/messages";
-import type { BridgeError, BridgeErrorCode, ExtractionBundle } from "../shared/types";
+import type { BridgeError, BridgeErrorCode, ImportReport } from "../shared/types";
 
 type StatusKind = "info" | "success" | "warning" | "error";
-type CopyMessageType =
-  | typeof MESSAGE_COPY_COOKIE_HEADER
-  | typeof MESSAGE_COPY_ENV_BLOCK
-  | typeof MESSAGE_COPY_CLI_SNIPPET;
+type TabId = "export" | "import";
 
-const platformSelect = mustElement<HTMLSelectElement>("platformSelect");
-const extractButton = mustElement<HTMLButtonElement>("extractButton");
+const tabExportButton = mustElement<HTMLButtonElement>("tabExportButton");
+const tabImportButton = mustElement<HTMLButtonElement>("tabImportButton");
+const exportPanel = mustElement<HTMLElement>("exportPanel");
+const importPanel = mustElement<HTMLElement>("importPanel");
 const statusPanel = mustElement<HTMLElement>("statusPanel");
-const healthPanel = mustElement<HTMLElement>("healthPanel");
-const requiredSummary = mustElement<HTMLElement>("requiredSummary");
-const requiredList = mustElement<HTMLUListElement>("requiredList");
-const resultPanel = mustElement<HTMLElement>("resultPanel");
-const metaLine = mustElement<HTMLElement>("metaLine");
-const cookieHeaderPreview = mustElement<HTMLTextAreaElement>("cookieHeaderPreview");
-const envBlockPreview = mustElement<HTMLTextAreaElement>("envBlockPreview");
-const cliSnippetPreview = mustElement<HTMLTextAreaElement>("cliSnippetPreview");
+
+const targetUrlInput = mustElement<HTMLInputElement>("targetUrlInput");
+const detectTabButton = mustElement<HTMLButtonElement>("detectTabButton");
+const requestPermissionButton = mustElement<HTMLButtonElement>("requestPermissionButton");
+const exportSessionButton = mustElement<HTMLButtonElement>("exportSessionButton");
 const copyHeaderButton = mustElement<HTMLButtonElement>("copyHeaderButton");
-const copyEnvButton = mustElement<HTMLButtonElement>("copyEnvButton");
-const copyCliButton = mustElement<HTMLButtonElement>("copyCliButton");
-const exportJsonButton = mustElement<HTMLButtonElement>("exportJsonButton");
+const copyArtifactButton = mustElement<HTMLButtonElement>("copyArtifactButton");
+const downloadArtifactButton = mustElement<HTMLButtonElement>("downloadArtifactButton");
+const cookieHeaderPreview = mustElement<HTMLTextAreaElement>("cookieHeaderPreview");
+const fingerprintPreview = mustElement<HTMLInputElement>("fingerprintPreview");
+const artifactPreview = mustElement<HTMLTextAreaElement>("artifactPreview");
 
-const adapters = listPlatformAdapters();
-const adapterById = new Map(adapters.map((adapter) => [adapter.id, adapter]));
+const artifactFileInput = mustElement<HTMLInputElement>("artifactFileInput");
+const artifactInput = mustElement<HTMLTextAreaElement>("artifactInput");
+const verifyArtifactButton = mustElement<HTMLButtonElement>("verifyArtifactButton");
+const importSessionButton = mustElement<HTMLButtonElement>("importSessionButton");
+const verifyPanel = mustElement<HTMLElement>("verifyPanel");
+const verifySummary = mustElement<HTMLElement>("verifySummary");
+const importReportPanel = mustElement<HTMLElement>("importReportPanel");
+const importSummary = mustElement<HTMLElement>("importSummary");
+const importResultsList = mustElement<HTMLUListElement>("importResultsList");
 
-let inMemoryExtraction: ExtractionBundle | null = null;
 let busy = false;
 
 function mustElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) {
-    throw new Error(`Missing required popup element: #${id}`);
+    throw new Error(`Missing popup element: #${id}`);
   }
   return element as T;
 }
@@ -52,6 +55,55 @@ function errorEnvelope(code: BridgeErrorCode, message: string): BridgeResponseMe
     ok: false,
     error: { code, message }
   };
+}
+
+function setStatus(kind: StatusKind, message: string): void {
+  statusPanel.className = `panel status ${kind}`;
+  statusPanel.textContent = message;
+}
+
+function setBusy(nextBusy: boolean): void {
+  busy = nextBusy;
+  const controls: Array<HTMLInputElement | HTMLButtonElement | HTMLTextAreaElement> = [
+    targetUrlInput,
+    detectTabButton,
+    requestPermissionButton,
+    exportSessionButton,
+    copyHeaderButton,
+    copyArtifactButton,
+    downloadArtifactButton,
+    artifactFileInput,
+    artifactInput,
+    verifyArtifactButton,
+    importSessionButton
+  ];
+  for (const control of controls) {
+    control.disabled = nextBusy;
+  }
+}
+
+function showTab(tab: TabId): void {
+  const exportActive = tab === "export";
+  tabExportButton.classList.toggle("active", exportActive);
+  tabImportButton.classList.toggle("active", !exportActive);
+  exportPanel.classList.toggle("hidden", !exportActive);
+  importPanel.classList.toggle("hidden", exportActive);
+}
+
+function parseTargetUrl(raw: string): URL | null {
+  try {
+    const parsed = new URL(raw.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function hostPatternForUrl(targetUrl: URL): string {
+  return `${targetUrl.protocol}//${targetUrl.hostname}/*`;
 }
 
 function requestHostPermission(origins: string[]): Promise<boolean> {
@@ -72,7 +124,7 @@ function sendBridgeMessage(message: BridgeRequestMessage): Promise<BridgeRespons
     chrome.runtime.sendMessage(message, (response: unknown) => {
       const runtimeError = chrome.runtime.lastError;
       if (runtimeError) {
-        resolve(errorEnvelope("API_FAILURE", runtimeError.message || "Runtime messaging failed."));
+        resolve(errorEnvelope("API_FAILURE", runtimeError.message || "Runtime message failure."));
         return;
       }
       if (!isResponseEnvelope(response)) {
@@ -84,197 +136,149 @@ function sendBridgeMessage(message: BridgeRequestMessage): Promise<BridgeRespons
   });
 }
 
-function setStatus(kind: StatusKind, message: string): void {
-  statusPanel.className = `panel status ${kind}`;
-  statusPanel.textContent = message;
-}
-
-function setBusy(nextBusy: boolean): void {
-  busy = nextBusy;
-  extractButton.disabled = busy;
-  platformSelect.disabled = busy;
-  const disabled = busy || inMemoryExtraction === null;
-  copyHeaderButton.disabled = disabled;
-  copyEnvButton.disabled = disabled;
-  copyCliButton.disabled = disabled;
-  exportJsonButton.disabled = disabled;
-}
-
-function clearResultPreview(): void {
-  inMemoryExtraction = null;
-  resultPanel.classList.add("hidden");
-  metaLine.textContent = "";
-  cookieHeaderPreview.value = "";
-  envBlockPreview.value = "";
-  cliSnippetPreview.value = "";
-  setBusy(busy);
-}
-
-function setRequiredSummary(presentCount: number, totalCount: number): void {
-  requiredSummary.textContent = `${presentCount}/${totalCount} present`;
-  requiredSummary.className = "summary";
-
-  if (totalCount === 0) {
-    requiredSummary.classList.add("neutral");
-    return;
-  }
-
-  requiredSummary.classList.add(presentCount === totalCount ? "ok" : "missing");
-}
-
-function renderRequiredHealth(platformId: string, requiredPresent: Record<string, boolean>): void {
-  requiredList.innerHTML = "";
-  const adapter = adapterById.get(platformId);
-  const requiredNames = adapter?.requiredCookies ?? Object.keys(requiredPresent).sort();
-  let presentCount = 0;
-
-  for (const name of requiredNames) {
-    const present = Boolean(requiredPresent[name]);
-    if (present) {
-      presentCount += 1;
-    }
-    const item = document.createElement("li");
-    item.className = "required-item";
-
-    const label = document.createElement("span");
-    label.textContent = name;
-
-    const badge = document.createElement("span");
-    badge.className = `badge ${present ? "ok" : "missing"}`;
-    badge.textContent = present ? "present" : "missing";
-
-    item.append(label, badge);
-    requiredList.appendChild(item);
-  }
-
-  setRequiredSummary(presentCount, requiredNames.length);
-  healthPanel.classList.remove("hidden");
-}
-
-function hideRequiredHealth(): void {
-  requiredList.innerHTML = "";
-  setRequiredSummary(0, 0);
-  healthPanel.classList.add("hidden");
-}
-
-function toHealthDetails(details: unknown): Record<string, boolean> | null {
-  if (!details || typeof details !== "object") {
-    return null;
-  }
-  const maybeRecord = (details as Record<string, unknown>).required_present;
-  if (!maybeRecord || typeof maybeRecord !== "object") {
-    return null;
-  }
-
-  const parsed: Record<string, boolean> = {};
-  for (const [key, value] of Object.entries(maybeRecord as Record<string, unknown>)) {
-    if (typeof value !== "boolean") {
-      return null;
-    }
-    parsed[key] = value;
-  }
-  return parsed;
-}
-
 function describeError(error: BridgeError): string {
   switch (error.code) {
-    case "NOT_SIGNED_IN": {
-      const details = error.details ?? {};
-      const missing = Array.isArray(details.missing_required)
-        ? details.missing_required.filter((entry): entry is string => typeof entry === "string")
-        : [];
-      if (missing.length > 0) {
-        return `Not signed in for Medium. Missing required cookies: ${missing.join(", ")}.`;
-      }
-      return "Not signed in for Medium. Required cookies are missing.";
-    }
     case "PERMISSION_DENIED":
-      return "Permission denied. Allow medium.com host access and try again.";
-    case "UNKNOWN_PLATFORM":
-      return "Unsupported platform selection.";
+      return "Permission denied. Grant host access and retry.";
     case "INVALID_REQUEST":
-      return "Invalid request sent to background worker.";
+      return "Invalid request payload.";
+    case "INVALID_ARTIFACT":
+      return `Artifact invalid: ${error.message}`;
+    case "SIGNATURE_INVALID":
+      return `Signature verification failed: ${error.message}`;
+    case "IMPORT_PARTIAL":
+      return "Import completed with partial failures.";
+    case "IMPORT_FAILED":
+      return "Import failed. No cookies were imported.";
+    case "UNSUPPORTED_COOKIE":
+      return `Unsupported cookie constraint: ${error.message}`;
     case "API_FAILURE":
       return `Background API failure: ${error.message}`;
+    case "UNKNOWN_PLATFORM":
+    case "NOT_SIGNED_IN":
+      return error.message;
     default:
       return error.message;
   }
 }
 
-function renderExtraction(bundle: ExtractionBundle): void {
-  const dateLabel = new Date(bundle.created_at_utc).toLocaleString();
-  metaLine.textContent = `Platform: ${bundle.platform_label} | Captured: ${dateLabel} | Cookies: ${Object.keys(bundle.cookies).length}`;
-  cookieHeaderPreview.value = bundle.cookie_header;
-  envBlockPreview.value = bundle.env_block;
-  cliSnippetPreview.value = bundle.cli_import_snippet;
-  renderRequiredHealth(bundle.platform_id, bundle.required_present);
-  resultPanel.classList.remove("hidden");
+async function writeClipboard(text: string, successMessage: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus("success", successMessage);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus("error", `Clipboard write failed: ${message}`);
+  }
 }
 
-function buildCopyMessage(type: CopyMessageType, extraction: ExtractionBundle): BridgeRequestMessage {
-  return {
-    type,
-    platform_id: extraction.platform_id,
-    cookies: extraction.cookies
-  };
+function clearExportPreview(): void {
+  cookieHeaderPreview.value = "";
+  fingerprintPreview.value = "";
+  artifactPreview.value = "";
 }
 
-async function handleExtract(): Promise<void> {
-  const platformId = platformSelect.value;
-  if (!platformId) {
-    setStatus("warning", "Select a platform first.");
-    return;
-  }
-
-  const adapter = adapterById.get(platformId);
-  if (!adapter) {
-    setStatus("error", "Unsupported platform selection.");
-    return;
-  }
-
+async function handleDetectActiveTab(): Promise<void> {
   setBusy(true);
-  clearResultPreview();
-  hideRequiredHealth();
-
-  setStatus("info", "Requesting host permission for medium.com...");
-  const permissionGranted = await requestHostPermission(adapter.hostPatterns);
-  if (!permissionGranted) {
-    setStatus("error", "Permission denied. Allow medium.com host access and try again.");
-    setBusy(false);
-    return;
-  }
-
-  setStatus("info", "Extracting cookies...");
-
-  const response = await sendBridgeMessage({
-    type: MESSAGE_REQUEST_PLATFORM_DATA,
-    platform_id: platformId
-  });
-
+  const response = await sendBridgeMessage({ type: MESSAGE_REQUEST_ACTIVE_TAB_CONTEXT });
   if (!response.ok) {
-    const requiredHealth = toHealthDetails(response.error.details);
-    if (requiredHealth) {
-      renderRequiredHealth(platformId, requiredHealth);
-    }
-    setStatus(response.error.code === "NOT_SIGNED_IN" ? "warning" : "error", describeError(response.error));
+    setStatus("error", describeError(response.error));
     setBusy(false);
     return;
   }
 
-  inMemoryExtraction = response.data;
-  renderExtraction(response.data);
-  setStatus("success", "Extraction complete. You can now copy or export artifacts.");
+  const data = response.data as { target_url?: unknown };
+  if (typeof data.target_url === "string") {
+    targetUrlInput.value = data.target_url;
+    setStatus("info", "Active tab URL loaded.");
+  } else {
+    setStatus("warning", "Active tab URL unavailable.");
+  }
   setBusy(false);
 }
 
-async function handleCopy(type: CopyMessageType, successText: string): Promise<void> {
-  if (!inMemoryExtraction) {
-    setStatus("warning", "Run extraction first.");
+async function handleRequestPermission(): Promise<void> {
+  const parsed = parseTargetUrl(targetUrlInput.value);
+  if (!parsed) {
+    setStatus("warning", "Enter a valid http(s) target URL first.");
     return;
   }
 
   setBusy(true);
-  const response = await sendBridgeMessage(buildCopyMessage(type, inMemoryExtraction));
+  const granted = await requestHostPermission([hostPatternForUrl(parsed)]);
+  setStatus(granted ? "success" : "error", granted ? "Host permission granted." : "Permission denied.");
+  setBusy(false);
+}
+
+async function handleExportSession(): Promise<void> {
+  const parsed = parseTargetUrl(targetUrlInput.value);
+  if (!parsed) {
+    setStatus("warning", "Enter a valid http(s) target URL first.");
+    return;
+  }
+
+  setBusy(true);
+  clearExportPreview();
+  const hostPattern = hostPatternForUrl(parsed);
+  const permissionGranted = await requestHostPermission([hostPattern]);
+  if (!permissionGranted) {
+    setStatus("error", "Permission denied for target host.");
+    setBusy(false);
+    return;
+  }
+
+  let response = await sendBridgeMessage({
+    type: MESSAGE_EXPORT_SESSION,
+    target_url: parsed.href
+  });
+
+  if (!response.ok && response.error.code === "PERMISSION_DENIED") {
+    const hostPatterns = Array.isArray(response.error.details?.host_patterns)
+      ? response.error.details.host_patterns.filter((value): value is string => typeof value === "string")
+      : [];
+    if (hostPatterns.length > 0) {
+      const granted = await requestHostPermission(hostPatterns);
+      if (granted) {
+        response = await sendBridgeMessage({
+          type: MESSAGE_EXPORT_SESSION,
+          target_url: parsed.href
+        });
+      }
+    }
+  }
+
+  if (!response.ok) {
+    setStatus("error", describeError(response.error));
+    setBusy(false);
+    return;
+  }
+
+  const payload = response.data as {
+    artifact?: { derived?: { cookie_header?: unknown } };
+    key_fingerprint?: unknown;
+  };
+  const artifactText = JSON.stringify(payload.artifact ?? {}, null, 2);
+  artifactPreview.value = artifactText;
+  cookieHeaderPreview.value =
+    typeof payload.artifact?.derived?.cookie_header === "string" ? payload.artifact.derived.cookie_header : "";
+  fingerprintPreview.value = typeof payload.key_fingerprint === "string" ? payload.key_fingerprint : "";
+  setStatus("success", "Signed session artifact exported.");
+  setBusy(false);
+}
+
+async function handleCopyHeader(): Promise<void> {
+  if (!artifactPreview.value.trim()) {
+    setStatus("warning", "Export a session first.");
+    return;
+  }
+
+  setBusy(true);
+  const response = await sendBridgeMessage({
+    type: MESSAGE_COPY_FIELD,
+    field: "cookie_header",
+    artifact_json: artifactPreview.value
+  });
+
   if (!response.ok) {
     setStatus("error", describeError(response.error));
     setBusy(false);
@@ -283,96 +287,268 @@ async function handleCopy(type: CopyMessageType, successText: string): Promise<v
 
   const text = (response.data as { text?: unknown }).text;
   if (typeof text !== "string") {
-    setStatus("error", "Copy payload was missing expected text content.");
+    setStatus("error", "Copy field response is missing text.");
     setBusy(false);
     return;
   }
 
-  try {
-    await navigator.clipboard.writeText(text);
-    setStatus("success", successText);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    setStatus("error", `Clipboard write failed: ${message}`);
-  }
-
+  await writeClipboard(text, "Cookie header copied.");
   setBusy(false);
 }
 
-async function handleExportJson(): Promise<void> {
-  if (!inMemoryExtraction) {
-    setStatus("warning", "Run extraction first.");
+async function handleCopyArtifact(): Promise<void> {
+  if (!artifactPreview.value.trim()) {
+    setStatus("warning", "No artifact to copy.");
+    return;
+  }
+  setBusy(true);
+  await writeClipboard(artifactPreview.value, "Signed artifact JSON copied.");
+  setBusy(false);
+}
+
+function timestampLabel(iso: string): string {
+  return iso.replace(/[:.]/g, "-");
+}
+
+async function handleDownloadArtifact(): Promise<void> {
+  if (!artifactPreview.value.trim()) {
+    setStatus("warning", "No artifact to download.");
+    return;
+  }
+
+  setBusy(true);
+  try {
+    const parsed = JSON.parse(artifactPreview.value) as { source?: { origin?: string }; created_at_utc?: string };
+    const host = parsed.source?.origin ? new URL(parsed.source.origin).hostname : "session";
+    const timestamp = parsed.created_at_utc ? timestampLabel(parsed.created_at_utc) : timestampLabel(new Date().toISOString());
+    const filename = `session-cookie-bridge/${host}-signed-session-${timestamp}.json`;
+    const url = `data:application/json;charset=utf-8,${encodeURIComponent(artifactPreview.value)}`;
+    chrome.downloads.download(
+      {
+        url,
+        filename,
+        saveAs: true,
+        conflictAction: "uniquify"
+      },
+      (downloadId) => {
+        const runtimeError = chrome.runtime.lastError;
+        if (runtimeError || typeof downloadId !== "number") {
+          setStatus("error", runtimeError?.message || "Download failed.");
+          setBusy(false);
+          return;
+        }
+        setStatus("success", `Artifact downloaded as ${filename}`);
+        setBusy(false);
+      }
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus("error", `Failed to parse artifact JSON: ${message}`);
+    setBusy(false);
+  }
+}
+
+async function handleArtifactFileSelect(): Promise<void> {
+  const file = artifactFileInput.files?.[0];
+  if (!file) {
+    return;
+  }
+  const content = await file.text();
+  artifactInput.value = content;
+  setStatus("info", `Loaded artifact file: ${file.name}`);
+}
+
+function toImportReport(value: unknown): ImportReport | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const report = value as Partial<ImportReport>;
+  if (
+    typeof report.total !== "number" ||
+    typeof report.imported !== "number" ||
+    typeof report.failed !== "number" ||
+    typeof report.skipped !== "number" ||
+    !Array.isArray(report.results)
+  ) {
+    return null;
+  }
+  return report as ImportReport;
+}
+
+function renderImportReport(report: ImportReport): void {
+  importReportPanel.classList.remove("hidden");
+  importSummary.textContent = `Total ${report.total} | Imported ${report.imported} | Failed ${report.failed} | Skipped ${report.skipped}`;
+  importResultsList.innerHTML = "";
+
+  for (const result of report.results) {
+    const item = document.createElement("li");
+    item.className = "result-item";
+    const text = document.createElement("span");
+    text.textContent = `${result.name} @ ${result.domain}${result.path}${result.reason ? ` (${result.reason})` : ""}`;
+    const status = document.createElement("span");
+    status.className = `status-pill ${result.status}`;
+    status.textContent = result.status;
+    item.append(text, status);
+    importResultsList.appendChild(item);
+  }
+}
+
+function clearImportPanels(): void {
+  verifyPanel.classList.add("hidden");
+  importReportPanel.classList.add("hidden");
+  verifySummary.textContent = "";
+  importSummary.textContent = "";
+  importResultsList.innerHTML = "";
+}
+
+async function handleVerifyArtifact(): Promise<void> {
+  const json = artifactInput.value.trim();
+  if (!json) {
+    setStatus("warning", "Paste artifact JSON first.");
     return;
   }
 
   setBusy(true);
   const response = await sendBridgeMessage({
-    type: MESSAGE_EXPORT_JSON,
-    platform_id: inMemoryExtraction.platform_id,
-    cookies: inMemoryExtraction.cookies
+    type: MESSAGE_VERIFY_ARTIFACT,
+    artifact_json: json
   });
 
   if (!response.ok) {
     setStatus("error", describeError(response.error));
+    const report = toImportReport(response.error.details?.report);
+    if (report) {
+      renderImportReport(report);
+    }
     setBusy(false);
     return;
   }
 
-  const payload = response.data as { filename?: unknown };
-  if (typeof payload.filename === "string") {
-    setStatus("success", `JSON exported as ${payload.filename}`);
-  } else {
-    setStatus("success", "JSON export completed.");
-  }
+  const payload = response.data as {
+    valid?: unknown;
+    schema_version?: unknown;
+    key_fingerprint?: unknown;
+    cookie_count?: unknown;
+    legacy_converted?: unknown;
+  };
+  verifyPanel.classList.remove("hidden");
+  verifySummary.textContent = [
+    payload.valid === true ? "Valid signature" : "Invalid signature",
+    typeof payload.schema_version === "number" ? `Schema v${payload.schema_version}` : "",
+    typeof payload.cookie_count === "number" ? `${payload.cookie_count} cookies` : "",
+    typeof payload.key_fingerprint === "string" ? `Signer ${payload.key_fingerprint}` : "",
+    payload.legacy_converted === true ? "legacy-converted" : ""
+  ]
+    .filter(Boolean)
+    .join(" | ");
 
+  setStatus("success", "Artifact verification succeeded.");
   setBusy(false);
 }
 
-function initPlatformOptions(): void {
-  for (const adapter of adapters) {
-    const option = document.createElement("option");
-    option.value = adapter.id;
-    option.textContent = adapter.label;
-    option.disabled = adapter.id !== "medium";
-    platformSelect.appendChild(option);
+async function handleImportSession(): Promise<void> {
+  const json = artifactInput.value.trim();
+  if (!json) {
+    setStatus("warning", "Paste artifact JSON first.");
+    return;
   }
 
-  const defaultAdapter = adapters.find((adapter) => adapter.id === "medium") ?? adapters[0];
-  if (defaultAdapter) {
-    platformSelect.value = defaultAdapter.id;
+  setBusy(true);
+  clearImportPanels();
+
+  let response = await sendBridgeMessage({
+    type: MESSAGE_IMPORT_SESSION,
+    artifact_json: json
+  });
+
+  if (!response.ok && response.error.code === "PERMISSION_DENIED") {
+    const hostPatterns = Array.isArray(response.error.details?.host_patterns)
+      ? response.error.details.host_patterns.filter((value): value is string => typeof value === "string")
+      : [];
+
+    if (hostPatterns.length > 0) {
+      const granted = await requestHostPermission(hostPatterns);
+      if (granted) {
+        response = await sendBridgeMessage({
+          type: MESSAGE_IMPORT_SESSION,
+          artifact_json: json
+        });
+      }
+    }
   }
+
+  if (!response.ok) {
+    setStatus(response.error.code === "IMPORT_PARTIAL" ? "warning" : "error", describeError(response.error));
+    const report = toImportReport(response.error.details?.report);
+    if (report) {
+      renderImportReport(report);
+    }
+    setBusy(false);
+    return;
+  }
+
+  const payload = response.data as { report?: unknown; key_fingerprint?: unknown; legacy_converted?: unknown };
+  const report = toImportReport(payload.report);
+  if (report) {
+    renderImportReport(report);
+  }
+
+  verifyPanel.classList.remove("hidden");
+  verifySummary.textContent = [
+    typeof payload.key_fingerprint === "string" ? `Signer ${payload.key_fingerprint}` : "",
+    payload.legacy_converted === true ? "legacy-converted" : "native-v2"
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  setStatus("success", "Session import completed.");
+  setBusy(false);
 }
 
 function bindEvents(): void {
-  extractButton.addEventListener("click", () => {
-    void handleExtract();
+  tabExportButton.addEventListener("click", () => {
+    showTab("export");
+  });
+  tabImportButton.addEventListener("click", () => {
+    showTab("import");
   });
 
+  detectTabButton.addEventListener("click", () => {
+    void handleDetectActiveTab();
+  });
+  requestPermissionButton.addEventListener("click", () => {
+    void handleRequestPermission();
+  });
+  exportSessionButton.addEventListener("click", () => {
+    void handleExportSession();
+  });
   copyHeaderButton.addEventListener("click", () => {
-    void handleCopy(MESSAGE_COPY_COOKIE_HEADER, "Cookie header copied to clipboard.");
+    void handleCopyHeader();
+  });
+  copyArtifactButton.addEventListener("click", () => {
+    void handleCopyArtifact();
+  });
+  downloadArtifactButton.addEventListener("click", () => {
+    void handleDownloadArtifact();
   });
 
-  copyEnvButton.addEventListener("click", () => {
-    void handleCopy(MESSAGE_COPY_ENV_BLOCK, ".env block copied to clipboard.");
+  artifactFileInput.addEventListener("change", () => {
+    void handleArtifactFileSelect();
   });
-
-  copyCliButton.addEventListener("click", () => {
-    void handleCopy(MESSAGE_COPY_CLI_SNIPPET, "CLI snippet copied to clipboard.");
+  verifyArtifactButton.addEventListener("click", () => {
+    void handleVerifyArtifact();
   });
-
-  exportJsonButton.addEventListener("click", () => {
-    void handleExportJson();
-  });
-
-  window.addEventListener("unload", () => {
-    inMemoryExtraction = null;
+  importSessionButton.addEventListener("click", () => {
+    void handleImportSession();
   });
 }
 
 function init(): void {
-  initPlatformOptions();
   bindEvents();
   setBusy(false);
+  clearImportPanels();
+  showTab("export");
+  void handleDetectActiveTab();
 }
 
 init();
