@@ -21,10 +21,33 @@ interface RuntimeLike {
   lastError?: { message?: string };
 }
 
+function bytesToBinary(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let output = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    output += String.fromCharCode(...chunk);
+  }
+  return output;
+}
+
+function toCryptoBufferSource(bytes: Uint8Array): ArrayBuffer {
+  if (
+    bytes.byteOffset === 0 &&
+    bytes.byteLength === bytes.buffer.byteLength &&
+    bytes.buffer instanceof ArrayBuffer
+  ) {
+    return bytes.buffer;
+  }
+  const cloned = new Uint8Array(bytes.byteLength);
+  cloned.set(bytes);
+  return cloned.buffer;
+}
+
 function toBase64Url(bytes: Uint8Array): string {
   const base64 =
     typeof btoa === "function"
-      ? btoa(String.fromCharCode(...bytes))
+      ? btoa(bytesToBinary(bytes))
       : Buffer.from(bytes).toString("base64");
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
@@ -58,7 +81,7 @@ function runtimeErrorMessage(runtime: RuntimeLike | undefined): string | null {
 }
 
 async function sha256Bytes(input: Uint8Array): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest("SHA-256", input);
+  const digest = await crypto.subtle.digest("SHA-256", toCryptoBufferSource(input));
   return new Uint8Array(digest);
 }
 
@@ -89,12 +112,13 @@ export class SigningService {
   }
 
   private async loadKeyMaterial(): Promise<SigningKeyMaterial | null> {
-    if (!this.storage) {
+    const storage = this.storage;
+    if (!storage) {
       return this.keyCache;
     }
 
     return new Promise((resolve, reject) => {
-      this.storage.get(this.storageKey, (items) => {
+      storage.get(this.storageKey, (items) => {
         const runtimeError = runtimeErrorMessage(this.runtime);
         if (runtimeError) {
           reject(new Error(runtimeError));
@@ -121,11 +145,12 @@ export class SigningService {
 
   private async saveKeyMaterial(material: SigningKeyMaterial): Promise<void> {
     this.keyCache = material;
-    if (!this.storage) {
+    const storage = this.storage;
+    if (!storage) {
       return;
     }
     await new Promise<void>((resolve, reject) => {
-      this.storage.set({ [this.storageKey]: material }, () => {
+      storage.set({ [this.storageKey]: material }, () => {
         const runtimeError = runtimeErrorMessage(this.runtime);
         if (runtimeError) {
           reject(new Error(runtimeError));
@@ -155,15 +180,53 @@ export class SigningService {
     };
   }
 
+  private async importPrivateKey(privateKeyJwk: JsonWebKey): Promise<CryptoKey> {
+    return crypto.subtle.importKey(
+      "jwk",
+      privateKeyJwk,
+      {
+        name: "ECDSA",
+        namedCurve: "P-256"
+      },
+      false,
+      ["sign"]
+    );
+  }
+
+  private async importPublicKey(publicKeyJwk: JsonWebKey): Promise<CryptoKey> {
+    return crypto.subtle.importKey(
+      "jwk",
+      publicKeyJwk,
+      {
+        name: "ECDSA",
+        namedCurve: "P-256"
+      },
+      false,
+      ["verify"]
+    );
+  }
+
+  private async isMaterialUsable(material: SigningKeyMaterial): Promise<boolean> {
+    try {
+      await this.importPrivateKey(material.private_key_jwk);
+      await this.importPublicKey(material.public_key_jwk);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async getOrCreateMaterial(): Promise<SigningKeyMaterial> {
     if (this.keyCache) {
       return this.keyCache;
     }
     const existing = await this.loadKeyMaterial();
-    if (existing) {
+    if (existing && (await this.isMaterialUsable(existing))) {
       this.keyCache = existing;
       return existing;
     }
+
+    // If stored keys are corrupted/incompatible, rotate to a fresh pair.
     const created = await this.createKeyMaterial();
     await this.saveKeyMaterial(created);
     return created;
@@ -175,20 +238,19 @@ export class SigningService {
   }
 
   async signPayload(payloadWithoutSignature: unknown): Promise<{ signature: SignatureEnvelopeV2; keyFingerprint: string }> {
-    const material = await this.getOrCreateMaterial();
+    let material = await this.getOrCreateMaterial();
     const canonicalPayload = toCanonicalJson(payloadWithoutSignature);
     const payloadBytes = utf8Bytes(canonicalPayload);
     const payloadDigest = await sha256Bytes(payloadBytes);
-    const privateKey = await crypto.subtle.importKey(
-      "jwk",
-      material.private_key_jwk,
-      {
-        name: "ECDSA",
-        namedCurve: "P-256"
-      },
-      false,
-      ["sign"]
-    );
+    let privateKey: CryptoKey;
+    try {
+      privateKey = await this.importPrivateKey(material.private_key_jwk);
+    } catch {
+      // Recover from invalid persisted key material.
+      material = await this.createKeyMaterial();
+      await this.saveKeyMaterial(material);
+      privateKey = await this.importPrivateKey(material.private_key_jwk);
+    }
 
     const signatureBuffer = await crypto.subtle.sign(
       {
@@ -196,7 +258,7 @@ export class SigningService {
         hash: "SHA-256"
       },
       privateKey,
-      payloadBytes
+      toCryptoBufferSource(payloadBytes)
     );
 
     const signature = {
@@ -228,16 +290,16 @@ export class SigningService {
       };
     }
 
-    const publicKey = await crypto.subtle.importKey(
-      "jwk",
-      signature.public_key_jwk,
-      {
-        name: "ECDSA",
-        namedCurve: "P-256"
-      },
-      false,
-      ["verify"]
-    );
+    const keyFingerprint = await this.fingerprintFromPublicKey(signature.public_key_jwk);
+    let publicKey: CryptoKey;
+    try {
+      publicKey = await this.importPublicKey(signature.public_key_jwk);
+    } catch {
+      return {
+        valid: false,
+        keyFingerprint
+      };
+    }
 
     const isValid = await crypto.subtle.verify(
       {
@@ -245,13 +307,13 @@ export class SigningService {
         hash: "SHA-256"
       },
       publicKey,
-      fromBase64Url(signature.signature_base64url),
-      payloadBytes
+      toCryptoBufferSource(fromBase64Url(signature.signature_base64url)),
+      toCryptoBufferSource(payloadBytes)
     );
 
     return {
       valid: isValid,
-      keyFingerprint: await this.fingerprintFromPublicKey(signature.public_key_jwk)
+      keyFingerprint
     };
   }
 }
