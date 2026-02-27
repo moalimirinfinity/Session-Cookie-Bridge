@@ -253,9 +253,9 @@ function handleLegacyCopyAction(
       return okResponse({ text: bundleResult.data.env_block });
     case MESSAGE_COPY_CLI_SNIPPET:
       return okResponse({ text: bundleResult.data.cli_import_snippet });
-    default:
-      return errorResponse("INVALID_REQUEST", `Unsupported legacy copy action: ${message.type}`);
   }
+
+  return errorResponse("INVALID_REQUEST", "Unsupported legacy copy action.");
 }
 
 async function handleLegacyExportJson(
@@ -271,7 +271,10 @@ async function handleLegacyExportJson(
     return bundleResult;
   }
 
-  const download = await downloadJsonFile(`${adapter.id}-legacy-cookies`, bundleResult.data.json_payload as Record<string, unknown>);
+  const download = await downloadJsonFile(
+    `${adapter.id}-legacy-cookies`,
+    bundleResult.data.json_payload as unknown as Record<string, unknown>
+  );
   return okResponse({
     download_id: download.downloadId,
     filename: download.filename
