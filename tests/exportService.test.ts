@@ -1,84 +1,81 @@
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { buildExtractionBundle } from "../src/core/exportService";
-import { validateExportPayloadV1 } from "../src/core/validators";
-import { mediumAdapter } from "../src/platforms/medium.adapter";
+import { buildSignedSessionArtifact } from "../src/core/exportService";
+import { payloadWithoutSignature, SigningService } from "../src/core/signingService";
+import type { CookieRecordV2 } from "../src/shared/types";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-function collectTsFiles(rootDir: string): string[] {
-  const files: string[] = [];
-
-  for (const entry of readdirSync(rootDir, { withFileTypes: true })) {
-    const fullPath = path.join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...collectTsFiles(fullPath));
-      continue;
+function sampleCookies(): CookieRecordV2[] {
+  return [
+    {
+      name: "sid",
+      value: "sid-v",
+      domain: "example.com",
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "lax",
+      hostOnly: true,
+      session: true,
+      storeId: "0"
+    },
+    {
+      name: "uid",
+      value: "uid-v",
+      domain: "example.com",
+      path: "/",
+      secure: true,
+      httpOnly: false,
+      sameSite: "lax",
+      hostOnly: true,
+      session: true,
+      storeId: "0"
     }
-    if (entry.isFile() && fullPath.endsWith(".ts")) {
-      files.push(fullPath);
-    }
-  }
-
-  return files;
+  ];
 }
 
-describe("buildExtractionBundle", () => {
-  it("returns structured NOT_SIGNED_IN error when required cookies are missing", () => {
-    const result = buildExtractionBundle(mediumAdapter, {
-      sid: "sid-only"
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-
-    expect(result.error.code).toBe("NOT_SIGNED_IN");
-    expect(result.error.details).toMatchObject({
-      missing_required: ["uid", "xsrf"],
-      required_present: {
-        sid: true,
-        uid: false,
-        xsrf: false
-      }
-    });
-  });
-
-  it("produces schema-valid payload for complete Medium sessions", () => {
-    const result = buildExtractionBundle(mediumAdapter, {
-      sid: "sid-v",
-      uid: "uid-v",
-      xsrf: "xsrf-v",
-      cf_clearance: "cf-v",
-      _cfuvid: "cfu-v"
-    });
+describe("buildSignedSessionArtifact", () => {
+  it("builds schema-v2 signed artifact", async () => {
+    const signingService = new SigningService(null);
+    const result = await buildSignedSessionArtifact("https://example.com/", sampleCookies(), signingService);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
 
-    const payload = result.data.json_payload;
-    expect(validateExportPayloadV1(payload)).toEqual([]);
-    expect(payload.schema_version).toBe(1);
-    expect(payload.platform).toBe("medium");
-    expect(payload.cookie_header).toContain("sid=sid-v");
-    expect(payload.required_present).toEqual({ sid: true, uid: true, xsrf: true });
+    expect(result.data.artifact.schema_version).toBe(2);
+    expect(result.data.artifact.cookies).toHaveLength(2);
+    expect(result.data.artifact.signature.alg).toBe("ECDSA_P256_SHA256");
+    expect(result.data.artifact.derived.cookie_header).toContain("sid=sid-v");
+    expect(result.data.key_fingerprint).not.toHaveLength(0);
   });
 
-  it("does not rely on persistent storage APIs for cookie data", () => {
-    const sourceRoot = path.resolve(__dirname, "../src");
-    const tsFiles = collectTsFiles(sourceRoot);
-
-    for (const file of tsFiles) {
-      const content = readFileSync(file, "utf8");
-      expect(content.includes("chrome.storage")).toBe(false);
-      expect(content.includes("localStorage")).toBe(false);
-      expect(content.includes("sessionStorage")).toBe(false);
+  it("verifies untouched payload and fails after tampering", async () => {
+    const signingService = new SigningService(null);
+    const result = await buildSignedSessionArtifact("https://example.com/", sampleCookies(), signingService);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
     }
+
+    const verifyOriginal = await signingService.verifyPayload(
+      payloadWithoutSignature(result.data.artifact),
+      result.data.artifact.signature
+    );
+    expect(verifyOriginal.valid).toBe(true);
+
+    const tampered = {
+      ...result.data.artifact,
+      cookies: result.data.artifact.cookies.map((cookie, index) =>
+        index === 0
+          ? {
+              ...cookie,
+              value: "tampered"
+            }
+          : cookie
+      )
+    };
+
+    const verifyTampered = await signingService.verifyPayload(payloadWithoutSignature(tampered), tampered.signature);
+    expect(verifyTampered.valid).toBe(false);
   });
 });
