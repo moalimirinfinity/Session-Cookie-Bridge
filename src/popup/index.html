@@ -7,13 +7,92 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app">
+    <main id="appRoot" class="app">
+      <svg class="icon-sprite" aria-hidden="true" focusable="false">
+        <symbol id="icon-chevron" viewBox="0 0 24 24">
+          <path d="m6 9 6 6 6-6" />
+        </symbol>
+        <symbol id="icon-export" viewBox="0 0 24 24">
+          <path d="M12 3v12" />
+          <path d="m7 8 5-5 5 5" />
+          <path d="M5 15v4h14v-4" />
+        </symbol>
+        <symbol id="icon-import" viewBox="0 0 24 24">
+          <path d="M12 21V9" />
+          <path d="m7 16 5 5 5-5" />
+          <path d="M5 5v4h14V5" />
+        </symbol>
+        <symbol id="icon-vault" viewBox="0 0 24 24">
+          <rect x="4" y="6" width="16" height="14" rx="2" />
+          <path d="M8 6V4h8v2" />
+          <path d="M9 13h6" />
+        </symbol>
+        <symbol id="icon-target" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+        </symbol>
+        <symbol id="icon-shield" viewBox="0 0 24 24">
+          <path d="M12 3 5 6v5c0 4.5 2.8 8.3 7 10 4.2-1.7 7-5.5 7-10V6l-7-3Z" />
+          <path d="m9 12 2 2 4-5" />
+        </symbol>
+        <symbol id="icon-copy" viewBox="0 0 24 24">
+          <rect x="8" y="8" width="11" height="11" rx="2" />
+          <path d="M5 15H4a1 1 0 0 1-1-1V5a2 2 0 0 1 2-2h9a1 1 0 0 1 1 1v1" />
+        </symbol>
+        <symbol id="icon-download" viewBox="0 0 24 24">
+          <path d="M12 3v12" />
+          <path d="m7 10 5 5 5-5" />
+          <path d="M5 19h14" />
+        </symbol>
+        <symbol id="icon-refresh" viewBox="0 0 24 24">
+          <path d="M20 11a8 8 0 0 0-14.9-4" />
+          <path d="M5 3v4h4" />
+          <path d="M4 13a8 8 0 0 0 14.9 4" />
+          <path d="M19 21v-4h-4" />
+        </symbol>
+        <symbol id="icon-search" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m16 16 4 4" />
+        </symbol>
+        <symbol id="icon-save" viewBox="0 0 24 24">
+          <path d="M5 3h12l2 2v16H5z" />
+          <path d="M8 3v6h8" />
+          <path d="M8 21v-7h8v7" />
+        </symbol>
+        <symbol id="icon-trash" viewBox="0 0 24 24">
+          <path d="M4 7h16" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="M6 7l1 14h10l1-14" />
+          <path d="M9 7V4h6v3" />
+        </symbol>
+        <symbol id="icon-play" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7Z" />
+        </symbol>
+        <symbol id="icon-check" viewBox="0 0 24 24">
+          <path d="m5 12 4 4L19 6" />
+        </symbol>
+        <symbol id="icon-file" viewBox="0 0 24 24">
+          <path d="M7 3h7l4 4v14H7z" />
+          <path d="M14 3v5h5" />
+        </symbol>
+      </svg>
       <header class="app-header">
+        <button
+          id="panelCollapseButton"
+          class="icon-button collapse-button"
+          type="button"
+          aria-label="Collapse panel"
+          aria-expanded="true"
+          title="Collapse panel"
+        >
+          <svg class="icon" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+        </button>
         <div class="brand-row">
           <img class="brand-icon" src="/icons/icon-32.png" alt="Session Cookie Bridge logo" />
           <div>
             <h1>Session Cookie Bridge <span>v2</span></h1>
-            <p class="lead">Signed cookie session transfer</p>
+            <p class="lead">Signed session transfer</p>
           </div>
         </div>
         <p class="notice warning-line">Sensitive data: treat exported artifacts as secrets.</p>

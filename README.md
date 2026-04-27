@@ -25,7 +25,10 @@ Exported artifacts contain authentication cookies. Treat them like credentials.
 
 ## Install
 
+Requires Node.js 20.19+; Node 22 is recommended and used by CI.
+
 ```bash
+nvm use
 npm install
 npm run build
 ```

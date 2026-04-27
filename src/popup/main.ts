@@ -28,7 +28,25 @@ import type {
 
 type StatusKind = "info" | "success" | "warning" | "error";
 type TabId = "export" | "import" | "workspace";
+type IconId =
+  | "chevron"
+  | "check"
+  | "copy"
+  | "download"
+  | "export"
+  | "file"
+  | "import"
+  | "play"
+  | "refresh"
+  | "save"
+  | "search"
+  | "shield"
+  | "target"
+  | "trash"
+  | "vault";
 
+const appRoot = mustElement<HTMLElement>("appRoot");
+const panelCollapseButton = mustElement<HTMLButtonElement>("panelCollapseButton");
 const tabExportButton = mustElement<HTMLButtonElement>("tabExportButton");
 const tabImportButton = mustElement<HTMLButtonElement>("tabImportButton");
 const tabWorkspaceButton = mustElement<HTMLButtonElement>("tabWorkspaceButton");
@@ -77,6 +95,7 @@ const savePresetButton = mustElement<HTMLButtonElement>("savePresetButton");
 const presetList = mustElement<HTMLUListElement>("presetList");
 
 let busy = false;
+let isPanelCollapsed = false;
 let hasExportArtifact = false;
 let presetCache: ImportPreset[] = [];
 
@@ -93,6 +112,42 @@ function errorEnvelope(code: BridgeErrorCode, message: string): BridgeResponseMe
     ok: false,
     error: { code, message }
   };
+}
+
+function createIcon(iconId: IconId): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  svg.classList.add("icon");
+  svg.setAttribute("aria-hidden", "true");
+  use.setAttribute("href", `#icon-${iconId}`);
+  svg.appendChild(use);
+  return svg;
+}
+
+function setButtonContent(button: HTMLButtonElement, iconId: IconId, label: string): void {
+  const labelElement = document.createElement("span");
+  labelElement.className = "button-label";
+  labelElement.textContent = label;
+  button.replaceChildren(createIcon(iconId), labelElement);
+}
+
+function setupIconography(): void {
+  setButtonContent(tabExportButton, "export", "Export");
+  setButtonContent(tabImportButton, "import", "Import");
+  setButtonContent(tabWorkspaceButton, "vault", "Workspace");
+  setButtonContent(detectTabButton, "target", "Active Tab");
+  setButtonContent(requestPermissionButton, "shield", "Permission");
+  setButtonContent(exportSessionButton, "export", "Export");
+  setButtonContent(copyHeaderButton, "copy", "Header");
+  setButtonContent(copyArtifactButton, "copy", "JSON");
+  setButtonContent(downloadArtifactButton, "download", "Download");
+  setButtonContent(verifyArtifactButton, "check", "Verify");
+  setButtonContent(importSessionButton, "import", "Import");
+  setButtonContent(refreshVaultButton, "refresh", "Refresh");
+  setButtonContent(searchVaultButton, "search", "Search");
+  setButtonContent(refreshSignersButton, "refresh", "Refresh");
+  setButtonContent(refreshPresetsButton, "refresh", "Refresh");
+  setButtonContent(savePresetButton, "save", "Save");
 }
 
 function setStatus(kind: StatusKind, message: string): void {
@@ -155,6 +210,14 @@ function refreshControlStates(): void {
 function setBusy(nextBusy: boolean): void {
   busy = nextBusy;
   refreshControlStates();
+}
+
+function setPanelCollapsed(nextCollapsed: boolean): void {
+  isPanelCollapsed = nextCollapsed;
+  appRoot.classList.toggle("is-collapsed", isPanelCollapsed);
+  panelCollapseButton.setAttribute("aria-expanded", String(!isPanelCollapsed));
+  panelCollapseButton.setAttribute("aria-label", isPanelCollapsed ? "Expand panel" : "Collapse panel");
+  panelCollapseButton.title = isPanelCollapsed ? "Expand panel" : "Collapse panel";
 }
 
 function showTab(tab: TabId): void {
@@ -766,7 +829,7 @@ function renderVaultEntries(entries: VaultEntry[]): void {
     const useButton = document.createElement("button");
     useButton.className = "btn-ghost";
     useButton.type = "button";
-    useButton.textContent = "Load";
+    setButtonContent(useButton, "file", "Load");
     useButton.addEventListener("click", () => {
       artifactInput.value = entry.artifact_json;
       refreshControlStates();
@@ -777,7 +840,7 @@ function renderVaultEntries(entries: VaultEntry[]): void {
     const verifyButton = document.createElement("button");
     verifyButton.className = "btn-ghost";
     verifyButton.type = "button";
-    verifyButton.textContent = "Re-verify";
+    setButtonContent(verifyButton, "check", "Verify");
     verifyButton.addEventListener("click", () => {
       artifactInput.value = entry.artifact_json;
       refreshControlStates();
@@ -788,7 +851,7 @@ function renderVaultEntries(entries: VaultEntry[]): void {
     const importButton = document.createElement("button");
     importButton.className = "btn-ghost";
     importButton.type = "button";
-    importButton.textContent = "Re-import";
+    setButtonContent(importButton, "import", "Import");
     importButton.addEventListener("click", () => {
       artifactInput.value = entry.artifact_json;
       refreshControlStates();
@@ -799,7 +862,7 @@ function renderVaultEntries(entries: VaultEntry[]): void {
     const deleteButton = document.createElement("button");
     deleteButton.className = "btn-ghost";
     deleteButton.type = "button";
-    deleteButton.textContent = "Delete";
+    setButtonContent(deleteButton, "trash", "Delete");
     deleteButton.addEventListener("click", async () => {
       setBusy(true);
       const response = await sendBridgeMessage({ type: MESSAGE_DELETE_VAULT_ENTRY, id: entry.id });
@@ -899,7 +962,7 @@ function renderSigners(signers: SignerRecord[]): void {
     const saveButton = document.createElement("button");
     saveButton.className = "btn-ghost";
     saveButton.type = "button";
-    saveButton.textContent = "Save";
+    setButtonContent(saveButton, "save", "Save");
 
     if (signer.trust_status === "self") {
       select.disabled = true;
@@ -993,7 +1056,7 @@ function renderPresets(presets: ImportPreset[]): void {
     const applyButton = document.createElement("button");
     applyButton.className = "btn-ghost";
     applyButton.type = "button";
-    applyButton.textContent = "Apply";
+    setButtonContent(applyButton, "play", "Apply");
     applyButton.addEventListener("click", () => {
       importModeSelect.value = preset.default_mode;
       importTargetUrlInput.value = `https://${preset.host}/`;
@@ -1008,7 +1071,7 @@ function renderPresets(presets: ImportPreset[]): void {
     const deleteButton = document.createElement("button");
     deleteButton.className = "btn-ghost";
     deleteButton.type = "button";
-    deleteButton.textContent = "Delete";
+    setButtonContent(deleteButton, "trash", "Delete");
     deleteButton.addEventListener("click", async () => {
       setBusy(true);
       const response = await sendBridgeMessage({ type: MESSAGE_DELETE_PRESET, id: preset.id });
@@ -1081,6 +1144,10 @@ async function handleSavePreset(): Promise<void> {
 }
 
 function bindEvents(): void {
+  panelCollapseButton.addEventListener("click", () => {
+    setPanelCollapsed(!isPanelCollapsed);
+  });
+
   tabExportButton.addEventListener("click", () => {
     showTab("export");
   });
@@ -1144,7 +1211,9 @@ function bindEvents(): void {
 }
 
 function init(): void {
+  setupIconography();
   bindEvents();
+  setPanelCollapsed(false);
   setStatus("info", "Choose Export, Import, or Workspace to get started.");
   setBusy(false);
   clearImportPanels();

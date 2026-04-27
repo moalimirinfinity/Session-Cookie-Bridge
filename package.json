@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Private universal cookie session export/import extension (MV3) with signed artifacts.",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
