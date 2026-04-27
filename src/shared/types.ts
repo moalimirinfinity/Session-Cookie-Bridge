@@ -1,5 +1,7 @@
 export type CookieMap = Record<string, string>;
 
+export type ImportMode = "rewrite_current_app" | "exact_replay";
+
 export type BridgeErrorCode =
   | "INVALID_REQUEST"
   | "UNKNOWN_PLATFORM"
@@ -102,9 +104,12 @@ export interface VerifyArtifactResult {
   key_fingerprint: string;
   cookie_count: number;
   legacy_converted: boolean;
+  trust_status: SignerTrustStatus;
+  trust_reason: string;
+  signer_key_id: string;
 }
 
-export type ImportCookieStatus = "imported" | "failed" | "skipped";
+export type ImportCookieStatus = "imported" | "failed" | "skipped" | "dry_run";
 
 export interface ImportCookieResult {
   name: string;
@@ -125,6 +130,10 @@ export interface ImportReport {
 export interface ImportSessionResult {
   key_fingerprint: string;
   legacy_converted: boolean;
+  trust_status: SignerTrustStatus;
+  mode_used: ImportMode;
+  target_url_used: string;
+  dry_run: boolean;
   report: ImportReport;
 }
 
@@ -135,6 +144,59 @@ export interface DownloadResult {
 
 export interface CopyFieldResult {
   text: string;
+}
+
+export type SignerTrustStatus = "self" | "trusted" | "unknown" | "blocked";
+export type SignerTrustDecision = "trusted" | "blocked" | "none";
+
+export interface SignerRecord {
+  key_fingerprint: string;
+  signer_key_id: string;
+  trust_status: SignerTrustStatus;
+  trust_reason: string;
+  updated_at_utc: string;
+  last_seen_at_utc?: string;
+}
+
+export type VaultOperationKind = "export" | "verify" | "import" | "dry_run";
+
+export interface VaultEntry {
+  id: string;
+  artifact_json: string;
+  artifact_id: string;
+  origin_host: string;
+  created_at_utc: string;
+  signer_fingerprint: string;
+  signer_key_id: string;
+  trust_status: SignerTrustStatus;
+  updated_at_utc: string;
+  last_operation: VaultOperationKind;
+  last_operation_at_utc: string;
+  import_mode?: ImportMode;
+  target_url?: string;
+  report?: ImportReport;
+}
+
+export interface SaveVaultEntryInput {
+  artifact_json: string;
+  artifact_id: string;
+  origin_host: string;
+  created_at_utc: string;
+  signer_fingerprint: string;
+  signer_key_id: string;
+  trust_status: SignerTrustStatus;
+  last_operation: VaultOperationKind;
+  import_mode?: ImportMode;
+  target_url?: string;
+  report?: ImportReport;
+}
+
+export interface ImportPreset {
+  id: string;
+  host: string;
+  default_mode: ImportMode;
+  warning_hint: string;
+  updated_at_utc: string;
 }
 
 // Legacy schema v1 kept for one release-cycle compatibility.

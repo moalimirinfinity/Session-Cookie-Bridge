@@ -3,8 +3,7 @@ import type { CookieMap } from "../shared/types";
 export const MEDIUM_COOKIE_ORDER = ["sid", "uid", "xsrf", "cf_clearance", "_cfuvid"] as const;
 
 export function quoteEnvValue(value: string): string {
-  const escaped = value.replace(/\\/g, "\\\\").replace(/\"/g, '\\\"');
-  return `"${escaped}"`;
+  return shellSingleQuote(value);
 }
 
 export function shellSingleQuote(value: string): string {
@@ -13,7 +12,7 @@ export function shellSingleQuote(value: string): string {
 
 export function sortedCookieEntries(cookies: CookieMap): Array<[string, string]> {
   return Object.entries(cookies)
-    .filter(([key, value]) => key.trim() && value.trim())
+    .filter(([key, value]) => key.trim() && typeof value === "string")
     .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
 }
 
@@ -22,10 +21,10 @@ export function formatCookieHeader(cookies: CookieMap, orderedKeys: readonly str
   const seen = new Set<string>();
 
   for (const key of orderedKeys) {
-    const value = cookies[key];
-    if (!value) {
+    if (!Object.prototype.hasOwnProperty.call(cookies, key)) {
       continue;
     }
+    const value = cookies[key];
     byPriority.push(`${key}=${value}`);
     seen.add(key);
   }

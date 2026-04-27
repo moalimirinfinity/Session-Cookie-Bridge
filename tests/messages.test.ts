@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  MESSAGE_DELETE_PRESET,
+  MESSAGE_DELETE_VAULT_ENTRY,
   isBridgeRequestMessage,
   isResponseEnvelope,
   MESSAGE_COPY_COOKIE_HEADER,
   MESSAGE_COPY_FIELD,
   MESSAGE_EXPORT_SESSION,
   MESSAGE_IMPORT_SESSION,
+  MESSAGE_LIST_PRESETS,
+  MESSAGE_LIST_SIGNERS,
+  MESSAGE_LIST_VAULT,
   MESSAGE_REQUEST_ACTIVE_TAB_CONTEXT,
+  MESSAGE_SET_SIGNER_TRUST,
+  MESSAGE_UPSERT_PRESET,
   MESSAGE_VERIFY_ARTIFACT
 } from "../src/shared/messages";
 
@@ -28,7 +35,9 @@ describe("message contract (v2 + legacy shim)", () => {
     expect(
       isBridgeRequestMessage({
         type: MESSAGE_IMPORT_SESSION,
-        artifact_json: "{}"
+        artifact_json: "{}",
+        import_mode: "rewrite_current_app",
+        dry_run: true
       })
     ).toBe(true);
     expect(
@@ -54,6 +63,47 @@ describe("message contract (v2 + legacy shim)", () => {
         artifact_json: "{}"
       })
     ).toBe(false);
+
+    expect(
+      isBridgeRequestMessage({
+        type: MESSAGE_IMPORT_SESSION,
+        artifact_json: "{}",
+        import_mode: "invalid"
+      })
+    ).toBe(false);
+  });
+
+  it("accepts trust, vault, and presets request payloads", () => {
+    expect(isBridgeRequestMessage({ type: MESSAGE_LIST_SIGNERS })).toBe(true);
+    expect(
+      isBridgeRequestMessage({
+        type: MESSAGE_SET_SIGNER_TRUST,
+        key_fingerprint: "abc",
+        decision: "trusted"
+      })
+    ).toBe(true);
+    expect(isBridgeRequestMessage({ type: MESSAGE_LIST_VAULT, query: "example" })).toBe(true);
+    expect(
+      isBridgeRequestMessage({
+        type: MESSAGE_DELETE_VAULT_ENTRY,
+        id: "entry-1"
+      })
+    ).toBe(true);
+    expect(isBridgeRequestMessage({ type: MESSAGE_LIST_PRESETS })).toBe(true);
+    expect(
+      isBridgeRequestMessage({
+        type: MESSAGE_UPSERT_PRESET,
+        host: "example.com",
+        default_mode: "exact_replay",
+        warning_hint: "dry-run first"
+      })
+    ).toBe(true);
+    expect(
+      isBridgeRequestMessage({
+        type: MESSAGE_DELETE_PRESET,
+        id: "preset-1"
+      })
+    ).toBe(true);
   });
 
   it("keeps legacy request shape valid", () => {

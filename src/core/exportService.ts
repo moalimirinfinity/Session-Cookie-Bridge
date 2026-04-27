@@ -1,4 +1,5 @@
 import { formatCookieHeader } from "./formatters";
+import { cookieIdentityKey } from "./cookieIdentity";
 import { SigningService } from "./signingService";
 import { missingRequiredCookies, requiredPresence, validateExportPayloadV1, validateSessionArtifactV2 } from "./validators";
 import type { PlatformAdapter } from "../platforms/types";
@@ -13,11 +14,10 @@ import type {
 
 function normalizeCookieNameValue(name: string, value: string): [string, string] | null {
   const normalizedName = name.trim();
-  const normalizedValue = value.trim();
-  if (!normalizedName || !normalizedValue) {
+  if (!normalizedName) {
     return null;
   }
-  return [normalizedName, normalizedValue];
+  return [normalizedName, value];
 }
 
 function normalizeCookieMap(cookies: CookieMap): CookieMap {
@@ -47,7 +47,7 @@ function normalizeCookieRecords(cookies: CookieRecordV2[]): CookieRecordV2[] {
       sameSite: cookie.sameSite || "unspecified",
       storeId: cookie.storeId || "0"
     };
-    const key = `${normalized.name}|${normalized.domain}|${normalized.path}`;
+    const key = cookieIdentityKey(normalized);
     unique.set(key, normalized);
   }
   return [...unique.values()].sort((a, b) => {
@@ -60,7 +60,7 @@ function normalizeCookieRecords(cookies: CookieRecordV2[]): CookieRecordV2[] {
 export function cookieMapFromRecords(records: CookieRecordV2[]): CookieMap {
   const map: CookieMap = {};
   for (const cookie of records) {
-    if (map[cookie.name]) {
+    if (Object.prototype.hasOwnProperty.call(map, cookie.name)) {
       continue;
     }
     map[cookie.name] = cookie.value;
@@ -99,6 +99,20 @@ export async function buildSignedSessionArtifact(
   }
 
   const normalizedCookies = normalizeCookieRecords(cookies);
+  if (normalizedCookies.length === 0) {
+    return {
+      ok: false,
+      error: {
+        code: "NOT_SIGNED_IN",
+        message: "No exportable cookies were found for this target URL.",
+        details: {
+          target_url: parsedUrl.href,
+          cookie_count: 0
+        }
+      }
+    };
+  }
+
   const payload: SessionArtifactPayloadV2 = {
     schema_version: 2,
     artifact_id: crypto.randomUUID(),

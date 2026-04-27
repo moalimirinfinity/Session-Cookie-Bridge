@@ -14,6 +14,7 @@ interface ChromePermissionsApi {
 interface ChromeCookiesApi {
   getAll(details: chrome.cookies.GetAllDetails, callback: (cookies: chrome.cookies.Cookie[]) => void): void;
   set(details: chrome.cookies.SetDetails, callback: (cookie?: chrome.cookies.Cookie | null) => void): void;
+  remove(details: chrome.cookies.CookieDetails, callback?: (details: chrome.cookies.CookieDetails) => void): void;
 }
 
 interface ChromeLike {
@@ -82,6 +83,19 @@ function setCookieRaw(api: ChromeLike, details: chrome.cookies.SetDetails): Prom
   });
 }
 
+function removeCookieRaw(api: ChromeLike, details: chrome.cookies.CookieDetails): Promise<chrome.cookies.CookieDetails | null> {
+  return new Promise((resolve, reject) => {
+    api.cookies.remove(details, (cookieDetails) => {
+      const errorMessage = runtimeErrorMessage(api);
+      if (errorMessage) {
+        reject(new Error(errorMessage));
+        return;
+      }
+      resolve(cookieDetails ?? null);
+    });
+  });
+}
+
 function normalizeSameSite(value: chrome.cookies.Cookie["sameSite"]): CookieSameSiteV2 {
   if (value === "lax" || value === "strict" || value === "no_restriction") {
     return value;
@@ -114,6 +128,12 @@ function cookieSetUrl(record: CookieRecordV2): string {
   const path = record.path?.startsWith("/") ? record.path : "/";
   const scheme = record.secure ? "https" : "http";
   return `${scheme}://${host}${path}`;
+}
+
+function cookieRemoveUrl(target: URL, cookie: chrome.cookies.Cookie): string {
+  const path = cookie.path?.startsWith("/") ? cookie.path : "/";
+  const scheme = cookie.secure || target.protocol === "https:" ? "https" : "http";
+  return `${scheme}://${target.hostname}${path}`;
 }
 
 export class CookieService {
@@ -158,7 +178,7 @@ export class CookieService {
     const cookies = await getAllCookies(this.chromeApi, url);
     const cookieMap: CookieMap = {};
     for (const cookie of cookies) {
-      if (!cookie.name || !cookie.value) {
+      if (!cookie.name || typeof cookie.value !== "string") {
         continue;
       }
       cookieMap[cookie.name] = cookie.value;
@@ -263,6 +283,50 @@ export class CookieService {
     };
 
     return report;
+  }
+
+  async clearCookiesForTargetUrl(targetUrl: string): Promise<void> {
+    const existingCookies = await getAllCookies(this.chromeApi, targetUrl);
+    if (existingCookies.length === 0) {
+      return;
+    }
+
+    const target = new URL(targetUrl);
+    const failures: string[] = [];
+
+    for (const cookie of existingCookies) {
+      try {
+        await removeCookieRaw(this.chromeApi, {
+          name: cookie.name,
+          url: cookieRemoveUrl(target, cookie),
+          storeId: cookie.storeId || undefined,
+          partitionKey: cookie.partitionKey
+            ? {
+                topLevelSite: cookie.partitionKey.topLevelSite,
+                hasCrossSiteAncestor: cookie.partitionKey.hasCrossSiteAncestor
+              }
+            : undefined
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(`${cookie.name}@${cookie.domain}${cookie.path}: ${message}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      const sample = failures.slice(0, 3).join("; ");
+      const extra = failures.length > 3 ? ` (+${failures.length - 3} more)` : "";
+      throw new Error(`Failed to clear existing cookies before replacement: ${sample}${extra}`);
+    }
+  }
+
+  async replaceCookiesForTargetUrl(targetUrl: string, records: CookieRecordV2[]): Promise<ImportReport> {
+    if (records.length === 0) {
+      return this.setCookies(records);
+    }
+
+    await this.clearCookiesForTargetUrl(targetUrl);
+    return this.setCookies(records);
   }
 }
 

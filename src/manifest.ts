@@ -23,6 +23,6 @@ export default defineManifest({
     service_worker: "src/background/index.ts",
     type: "module"
   },
-  permissions: ["cookies", "clipboardWrite", "downloads", "activeTab"],
+  permissions: ["cookies", "clipboardWrite", "downloads", "activeTab", "storage"],
   optional_host_permissions: ["*://*/*"]
 });

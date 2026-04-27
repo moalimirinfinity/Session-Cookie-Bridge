@@ -78,4 +78,47 @@ describe("buildSignedSessionArtifact", () => {
     const verifyTampered = await signingService.verifyPayload(payloadWithoutSignature(tampered), tampered.signature);
     expect(verifyTampered.valid).toBe(false);
   });
+
+  it("preserves empty-value cookies in exported artifacts", async () => {
+    const signingService = new SigningService(null);
+    const result = await buildSignedSessionArtifact(
+      "https://example.com/",
+      [
+        {
+          name: "empty_cookie",
+          value: "",
+          domain: "example.com",
+          path: "/",
+          secure: true,
+          httpOnly: false,
+          sameSite: "lax",
+          hostOnly: true,
+          session: true,
+          storeId: "0"
+        }
+      ],
+      signingService
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.artifact.cookies[0]).toMatchObject({
+      name: "empty_cookie",
+      value: ""
+    });
+    expect(result.data.artifact.derived.cookie_header).toContain("empty_cookie=");
+  });
+
+  it("returns NOT_SIGNED_IN when no cookies are exportable", async () => {
+    const signingService = new SigningService(null);
+    const result = await buildSignedSessionArtifact("https://example.com/", [], signingService);
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error.code).toBe("NOT_SIGNED_IN");
+  });
 });

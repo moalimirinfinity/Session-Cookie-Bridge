@@ -1,14 +1,44 @@
+import { cookieIdentityKey } from "./cookieIdentity";
 import { cookieMapFromRecords } from "./exportService";
 import { formatCookieHeader } from "./formatters";
 import { payloadWithoutSignature, SigningService } from "./signingService";
 import { isExportPayloadV1, isSessionArtifactV2, validateSessionArtifactV2 } from "./validators";
-import type { CookieMap, CookieRecordV2, ExportPayloadV1, ResponseEnvelope, SessionArtifactV2 } from "../shared/types";
+import type {
+  CookieMap,
+  CookieRecordV2,
+  ExportPayloadV1,
+  ImportMode,
+  ResponseEnvelope,
+  SessionArtifactV2,
+  SignerTrustStatus
+} from "../shared/types";
 import type { CookieService } from "./cookieService";
 
 interface NormalizedArtifact {
   artifact: SessionArtifactV2;
   schema_version: 1 | 2;
   legacy_converted: boolean;
+}
+
+interface ImportNormalizedArtifactOptions {
+  targetUrl?: string;
+  importMode?: ImportMode;
+  dryRun?: boolean;
+}
+
+interface VerificationResult {
+  key_fingerprint: string;
+  trust_status: SignerTrustStatus;
+  trust_reason: string;
+  signer_key_id: string;
+}
+
+interface ImportReportResult {
+  total: number;
+  imported: number;
+  failed: number;
+  skipped: number;
+  results: Array<{ name: string; domain: string; path: string; status: "imported" | "failed" | "skipped" | "dry_run"; reason?: string }>;
 }
 
 function toResponseError<T>(
@@ -52,11 +82,11 @@ function mapLegacyCookieMap(cookies: CookieMap, targetUrl: string): CookieRecord
     }));
 }
 
-async function convertLegacyV1(payload: ExportPayloadV1, signingService: SigningService): Promise<NormalizedArtifact> {
+async function convertLegacyV1(payload: ExportPayloadV1): Promise<NormalizedArtifact> {
   const targetUrl = legacyTargetUrl(payload.platform);
   const sourceUrl = new URL(targetUrl);
   const cookies = mapLegacyCookieMap(payload.cookies, sourceUrl.href);
-  const cookieHeader = payload.cookie_header || formatCookieHeader(payload.cookies, []);
+  const cookieHeader = formatCookieHeader(payload.cookies, []);
   const draft = {
     schema_version: 2 as const,
     artifact_id: crypto.randomUUID(),
@@ -73,7 +103,8 @@ async function convertLegacyV1(payload: ExportPayloadV1, signingService: Signing
     }
   };
 
-  const signed = await signingService.signPayload(draft);
+  const legacySigner = new SigningService(null, "legacy-v1.ephemeral", "legacy-v1.trust", false);
+  const signed = await legacySigner.signPayload(draft);
   return {
     artifact: {
       ...draft,
@@ -146,7 +177,7 @@ export async function normalizeArtifactJson(
   if (isExportPayloadV1(parsed)) {
     return {
       ok: true,
-      data: await convertLegacyV1(parsed, signingService)
+      data: await convertLegacyV1(parsed)
     };
   }
 
@@ -156,7 +187,7 @@ export async function normalizeArtifactJson(
 export async function verifyNormalizedArtifact(
   normalized: NormalizedArtifact,
   signingService: SigningService
-): Promise<ResponseEnvelope<{ key_fingerprint: string }>> {
+): Promise<ResponseEnvelope<VerificationResult>> {
   const artifactIssues = validateSessionArtifactV2(normalized.artifact);
   if (artifactIssues.length > 0) {
     return toResponseError("INVALID_ARTIFACT", `Artifact validation failed: ${artifactIssues.join(", ")}`);
@@ -172,121 +203,226 @@ export async function verifyNormalizedArtifact(
     });
   }
 
-  return {
-    ok: true,
-    data: {
-      key_fingerprint: verification.keyFingerprint
-    }
-  };
-}
-
-export async function verifyArtifactJson(
-  artifactJson: string,
-  signingService: SigningService
-): Promise<ResponseEnvelope<{
-  valid: boolean;
-  schema_version: 1 | 2;
-  key_fingerprint: string;
-  cookie_count: number;
-  legacy_converted: boolean;
-}>> {
-  const normalized = await normalizeArtifactJson(artifactJson, signingService);
-  if (!normalized.ok) {
-    return normalized;
-  }
-
-  const verification = await verifyNormalizedArtifact(normalized.data, signingService);
-  if (!verification.ok) {
-    return verification;
+  const trust = await signingService.assessSigner(normalized.artifact.signature);
+  if (trust.trustStatus === "blocked") {
+    return toResponseError("SIGNATURE_INVALID", "Artifact signer is blocked.", {
+      key_fingerprint: verification.keyFingerprint,
+      trust_status: trust.trustStatus,
+      trust_reason: trust.trustReason,
+      signer_key_id: normalized.artifact.signature.key_id
+    });
   }
 
   return {
     ok: true,
     data: {
-      valid: true,
-      schema_version: normalized.data.schema_version,
-      key_fingerprint: verification.data.key_fingerprint,
-      cookie_count: normalized.data.artifact.cookies.length,
-      legacy_converted: normalized.data.legacy_converted
+      key_fingerprint: verification.keyFingerprint,
+      trust_status: trust.trustStatus,
+      trust_reason: trust.trustReason,
+      signer_key_id: normalized.artifact.signature.key_id
     }
   };
 }
 
-function buildUnsupportedEntries(artifact: SessionArtifactV2): Array<{ name: string; domain: string; path: string; reason: string }> {
+function buildUnsupportedEntries(artifact: SessionArtifactV2): Array<{ cookie: CookieRecordV2; reason: string }> {
   const nowEpochSeconds = Date.now() / 1000;
-  const unsupported: Array<{ name: string; domain: string; path: string; reason: string }> = [];
+  const unsupported: Array<{ cookie: CookieRecordV2; reason: string }> = [];
   for (const cookie of artifact.cookies) {
     const reason = validateCookieImportConstraints(cookie, nowEpochSeconds);
     if (!reason) {
       continue;
     }
-    unsupported.push({
-      name: cookie.name,
-      domain: cookie.domain,
-      path: cookie.path,
-      reason
-    });
+    unsupported.push({ cookie, reason });
   }
   return unsupported;
+}
+
+function toCurrentAppCookieSet(cookies: CookieRecordV2[], targetUrl: string): CookieRecordV2[] {
+  const target = new URL(targetUrl);
+  const secure = target.protocol === "https:";
+  const nowEpochSeconds = Date.now() / 1000;
+  const byName = new Map<string, CookieRecordV2>();
+
+  for (const cookie of cookies) {
+    const name = cookie.name.trim();
+    if (!name) {
+      continue;
+    }
+
+    const expirationDate =
+      typeof cookie.expirationDate === "number" && cookie.expirationDate > nowEpochSeconds
+        ? cookie.expirationDate
+        : undefined;
+
+    byName.set(name, {
+      ...cookie,
+      name,
+      domain: target.hostname,
+      hostOnly: true,
+      path: "/",
+      secure,
+      sameSite: !secure && cookie.sameSite === "no_restriction" ? "lax" : cookie.sameSite,
+      expirationDate,
+      session: expirationDate === undefined,
+      storeId: "",
+      partitionKey: undefined
+    });
+  }
+
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function buildSkippedEntries(unsupported: Array<{ cookie: CookieRecordV2; reason: string }>): Array<{
+  name: string;
+  domain: string;
+  path: string;
+  status: "skipped";
+  reason: string;
+}> {
+  return unsupported.map((entry) => ({
+    name: entry.cookie.name,
+    domain: entry.cookie.domain,
+    path: entry.cookie.path,
+    status: "skipped" as const,
+    reason: entry.reason
+  }));
+}
+
+function mergeImportReport(
+  total: number,
+  serviceReport: { imported: number; failed: number; skipped: number; results: ImportReportResult["results"] },
+  skippedEntries: ImportReportResult["results"]
+): ImportReportResult {
+  return {
+    total,
+    imported: serviceReport.imported,
+    failed: serviceReport.failed,
+    skipped: serviceReport.skipped + skippedEntries.length,
+    results: [...serviceReport.results, ...skippedEntries]
+  };
 }
 
 export async function importNormalizedArtifact(
   normalized: NormalizedArtifact,
   cookieService: CookieService,
-  signingService: SigningService
+  signingService: SigningService,
+  options: ImportNormalizedArtifactOptions = {}
 ): Promise<ResponseEnvelope<{
   key_fingerprint: string;
   legacy_converted: boolean;
-  report: {
-    total: number;
-    imported: number;
-    failed: number;
-    skipped: number;
-    results: Array<{ name: string; domain: string; path: string; status: "imported" | "failed" | "skipped"; reason?: string }>;
-  };
+  trust_status: SignerTrustStatus;
+  mode_used: ImportMode;
+  target_url_used: string;
+  dry_run: boolean;
+  report: ImportReportResult;
 }>> {
   const verification = await verifyNormalizedArtifact(normalized, signingService);
   if (!verification.ok) {
     return verification;
   }
 
-  const unsupported = buildUnsupportedEntries(normalized.artifact);
+  const importMode = options.importMode ?? "rewrite_current_app";
+  const targetUrl = options.targetUrl ?? normalized.artifact.source.target_url;
+
+  let cookiesToImport = normalized.artifact.cookies;
+  if (importMode === "rewrite_current_app") {
+    try {
+      cookiesToImport = toCurrentAppCookieSet(cookiesToImport, targetUrl);
+    } catch {
+      return toResponseError("INVALID_ARTIFACT", `Invalid import target URL: ${targetUrl}`);
+    }
+  }
+
+  const artifactForImport: SessionArtifactV2 =
+    cookiesToImport === normalized.artifact.cookies
+      ? normalized.artifact
+      : {
+          ...normalized.artifact,
+          cookies: cookiesToImport,
+          derived: {
+            ...normalized.artifact.derived,
+            cookie_count: cookiesToImport.length
+          }
+        };
+
+  const unsupported = buildUnsupportedEntries(artifactForImport);
   const unsupportedLookup = new Map<string, string>();
   for (const entry of unsupported) {
-    unsupportedLookup.set(`${entry.name}|${entry.domain}|${entry.path}`, entry.reason);
+    unsupportedLookup.set(cookieIdentityKey(entry.cookie), entry.reason);
   }
-  const importableCookies = normalized.artifact.cookies.filter((cookie) => {
-    const key = `${cookie.name}|${cookie.domain}|${cookie.path}`;
-    return !unsupportedLookup.has(key);
-  });
 
-  const serviceReport = await cookieService.setCookies(importableCookies);
-  const skippedEntries = unsupported.map((entry) => ({
-    name: entry.name,
-    domain: entry.domain,
-    path: entry.path,
-    status: "skipped" as const,
-    reason: entry.reason
-  }));
-  const report = {
-    total: normalized.artifact.cookies.length,
-    imported: serviceReport.imported,
-    failed: serviceReport.failed,
-    skipped: serviceReport.skipped + skippedEntries.length,
-    results: [...serviceReport.results, ...skippedEntries]
-  };
+  const importableCookies = artifactForImport.cookies.filter((cookie) => !unsupportedLookup.has(cookieIdentityKey(cookie)));
+  const skippedEntries = buildSkippedEntries(unsupported);
+
+  if (options.dryRun) {
+    const report: ImportReportResult = {
+      total: artifactForImport.cookies.length,
+      imported: 0,
+      failed: 0,
+      skipped: skippedEntries.length,
+      results: [
+        ...importableCookies.map((cookie) => ({
+          name: cookie.name,
+          domain: cookie.domain,
+          path: cookie.path,
+          status: "dry_run" as const,
+          reason: "Preflight passed; cookie would be imported."
+        })),
+        ...skippedEntries
+      ]
+    };
+
+    if (report.results.filter((item) => item.status === "dry_run").length === 0) {
+      return toResponseError("IMPORT_FAILED", "No cookies passed dry-run preflight.", {
+        report,
+        key_fingerprint: verification.data.key_fingerprint,
+        trust_status: verification.data.trust_status
+      });
+    }
+
+    return {
+      ok: true,
+      data: {
+        key_fingerprint: verification.data.key_fingerprint,
+        legacy_converted: normalized.legacy_converted,
+        trust_status: verification.data.trust_status,
+        mode_used: importMode,
+        target_url_used: targetUrl,
+        dry_run: true,
+        report
+      }
+    };
+  }
+
+  let serviceReport: { imported: number; failed: number; skipped: number; results: ImportReportResult["results"] };
+  try {
+    serviceReport =
+      importMode === "rewrite_current_app"
+        ? await cookieService.replaceCookiesForTargetUrl(targetUrl, importableCookies)
+        : await cookieService.setCookies(importableCookies);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return toResponseError("IMPORT_FAILED", `Failed to replace current cookies: ${message}`, {
+      key_fingerprint: verification.data.key_fingerprint,
+      trust_status: verification.data.trust_status
+    });
+  }
+
+  const report = mergeImportReport(artifactForImport.cookies.length, serviceReport, skippedEntries);
 
   if (report.imported === 0) {
     return toResponseError("IMPORT_FAILED", "No cookies were imported.", {
       report,
-      key_fingerprint: verification.data.key_fingerprint
+      key_fingerprint: verification.data.key_fingerprint,
+      trust_status: verification.data.trust_status
     });
   }
 
   if (report.failed > 0) {
     return toResponseError("IMPORT_PARTIAL", "Some cookies failed to import.", {
       report,
-      key_fingerprint: verification.data.key_fingerprint
+      key_fingerprint: verification.data.key_fingerprint,
+      trust_status: verification.data.trust_status
     });
   }
 
@@ -295,15 +431,16 @@ export async function importNormalizedArtifact(
     data: {
       key_fingerprint: verification.data.key_fingerprint,
       legacy_converted: normalized.legacy_converted,
+      trust_status: verification.data.trust_status,
+      mode_used: importMode,
+      target_url_used: targetUrl,
+      dry_run: false,
       report
     }
   };
 }
 
 export function cookieHeaderFromArtifact(artifact: SessionArtifactV2): string {
-  if (artifact.derived.cookie_header) {
-    return artifact.derived.cookie_header;
-  }
   const cookieMap = cookieMapFromRecords(artifact.cookies);
   return formatCookieHeader(cookieMap, []);
 }

@@ -2,8 +2,27 @@ import { describe, expect, it } from "vitest";
 import { CookieService } from "../src/core/cookieService";
 import type { CookieRecordV2 } from "../src/shared/types";
 
-function createChromeMock() {
+function createChromeMock(existingCookies: chrome.cookies.Cookie[] | null = null) {
   let capturedSetDetails: chrome.cookies.SetDetails | null = null;
+  const capturedRemoveDetails: chrome.cookies.CookieDetails[] = [];
+  const cookies =
+    existingCookies ??
+    ([
+      {
+        name: "sid",
+        value: "sid-v",
+        domain: ".example.com",
+        hostOnly: false,
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        session: true,
+        sameSite: "lax",
+        storeId: "0",
+        id: 1
+      } as unknown as chrome.cookies.Cookie
+    ] as chrome.cookies.Cookie[]);
+
   const api = {
     permissions: {
       contains: (_permissions: chrome.permissions.Permissions, callback: (result: boolean) => void) => callback(true),
@@ -11,21 +30,7 @@ function createChromeMock() {
     },
     cookies: {
       getAll: (_details: chrome.cookies.GetAllDetails, callback: (cookies: chrome.cookies.Cookie[]) => void) => {
-        callback([
-          {
-            name: "sid",
-            value: "sid-v",
-            domain: ".example.com",
-            hostOnly: false,
-            path: "/",
-            secure: true,
-            httpOnly: true,
-            session: true,
-            sameSite: "lax",
-            storeId: "0",
-            id: 1
-          } as unknown as chrome.cookies.Cookie
-        ]);
+        callback(cookies);
       },
       set: (details: chrome.cookies.SetDetails, callback: (cookie?: chrome.cookies.Cookie | null) => void) => {
         capturedSetDetails = details;
@@ -42,6 +47,10 @@ function createChromeMock() {
           storeId: details.storeId || "0",
           id: 1
         } as unknown as chrome.cookies.Cookie);
+      },
+      remove: (details: chrome.cookies.CookieDetails, callback?: (details: chrome.cookies.CookieDetails) => void) => {
+        capturedRemoveDetails.push(details);
+        callback?.(details);
       }
     },
     runtime: {}
@@ -49,7 +58,8 @@ function createChromeMock() {
 
   return {
     api,
-    getCapturedSetDetails: () => capturedSetDetails
+    getCapturedSetDetails: () => capturedSetDetails,
+    getCapturedRemoveDetails: () => capturedRemoveDetails
   };
 }
 
@@ -128,5 +138,59 @@ describe("CookieService", () => {
     ]);
 
     expect(patterns).toEqual(["*://*.example.org/*", "*://example.com/*", "*://example.org/*"]);
+  });
+
+  it("clears existing target cookies before replacement import", async () => {
+    const mock = createChromeMock([
+      {
+        name: "sid",
+        value: "old-sid",
+        domain: ".example.com",
+        hostOnly: false,
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        session: true,
+        sameSite: "lax",
+        storeId: "0",
+        id: 1
+      } as unknown as chrome.cookies.Cookie,
+      {
+        name: "uid",
+        value: "old-uid",
+        domain: "app.example.com",
+        hostOnly: true,
+        path: "/auth",
+        secure: false,
+        httpOnly: false,
+        session: true,
+        sameSite: "lax",
+        storeId: "0",
+        id: 2
+      } as unknown as chrome.cookies.Cookie
+    ]);
+    const service = new CookieService(mock.api as never);
+
+    const report = await service.replaceCookiesForTargetUrl("https://app.example.com/dashboard", [
+      {
+        name: "sid",
+        value: "new-sid",
+        domain: "app.example.com",
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        sameSite: "lax",
+        hostOnly: true,
+        session: true,
+        storeId: "0"
+      }
+    ]);
+
+    expect(report.imported).toBe(1);
+    expect(mock.getCapturedRemoveDetails()).toHaveLength(2);
+    expect(mock.getCapturedRemoveDetails()).toEqual([
+      expect.objectContaining({ name: "sid", url: "https://app.example.com/" }),
+      expect.objectContaining({ name: "uid", url: "https://app.example.com/auth" })
+    ]);
   });
 });

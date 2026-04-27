@@ -9,83 +9,169 @@
   <body>
     <main class="app">
       <header class="app-header">
-        <h1>Session Cookie Bridge v2</h1>
-        <p>Best-effort cookie session export/import with signed artifacts.</p>
-        <p class="warning-line">Sensitive data: treat exported artifacts as secrets.</p>
+        <div class="brand-row">
+          <img class="brand-icon" src="/icons/icon-32.png" alt="Session Cookie Bridge logo" />
+          <div>
+            <h1>Session Cookie Bridge v2</h1>
+            <p class="lead">Secure cookie transfer toolkit for export, verify, import, and workspace ops.</p>
+          </div>
+        </div>
+        <p class="notice warning-line">Sensitive data: treat exported artifacts as secrets.</p>
       </header>
 
-      <nav class="tabs" aria-label="Session actions">
+      <nav class="tabs tabs-3" aria-label="Session actions">
         <button id="tabExportButton" class="tab active" type="button" data-tab="export">Export</button>
         <button id="tabImportButton" class="tab" type="button" data-tab="import">Import</button>
+        <button id="tabWorkspaceButton" class="tab" type="button" data-tab="workspace">Workspace</button>
       </nav>
 
       <section id="statusPanel" class="panel status info" role="status" aria-live="polite">
-        Ready. Choose Export or Import.
+        Ready. Choose Export, Import, or Workspace.
       </section>
 
       <section id="exportPanel" class="panel tab-panel">
         <h2>Export Signed Session</h2>
+        <p class="section-note">Capture active session cookies from a target site and create a signed artifact.</p>
+
         <label for="targetUrlInput">Target URL</label>
+        <p class="field-help">Use any http(s) site. You can paste a full URL or a domain.</p>
         <div class="row">
           <input id="targetUrlInput" type="url" placeholder="https://example.com/" />
-          <button id="detectTabButton" type="button">Use Active Tab</button>
+          <button id="detectTabButton" class="btn-secondary" type="button">Use Active Tab</button>
         </div>
 
         <div class="row row-actions">
-          <button id="requestPermissionButton" type="button">Request Permission</button>
-          <button id="exportSessionButton" type="button">Export Signed Session</button>
+          <button id="requestPermissionButton" class="btn-secondary" type="button">Request Permission</button>
+          <button id="exportSessionButton" class="btn-primary" type="button">Export Signed Session</button>
         </div>
 
         <div class="output-block">
           <div class="output-head">
             <label for="cookieHeaderPreview">Cookie Header</label>
-            <button id="copyHeaderButton" type="button">Copy Header</button>
+            <button id="copyHeaderButton" class="btn-ghost" type="button">Copy Header</button>
           </div>
-          <textarea id="cookieHeaderPreview" readonly></textarea>
+          <textarea id="cookieHeaderPreview" class="mono" readonly></textarea>
         </div>
 
         <div class="output-block">
           <label for="fingerprintPreview">Signer Fingerprint</label>
-          <input id="fingerprintPreview" type="text" readonly />
+          <input id="fingerprintPreview" class="mono" type="text" readonly />
         </div>
 
         <div class="output-block">
           <div class="output-head">
             <label for="artifactPreview">Signed Artifact JSON</label>
-            <button id="copyArtifactButton" type="button">Copy JSON</button>
+            <button id="copyArtifactButton" class="btn-ghost" type="button">Copy JSON</button>
           </div>
-          <textarea id="artifactPreview" readonly></textarea>
+          <textarea id="artifactPreview" class="mono artifact-area" readonly></textarea>
         </div>
 
-        <div class="actions">
-          <button id="downloadArtifactButton" type="button">Download Signed JSON</button>
+        <div class="actions solo-action">
+          <button id="downloadArtifactButton" class="btn-primary" type="button">Download Signed JSON</button>
         </div>
       </section>
 
       <section id="importPanel" class="panel tab-panel hidden">
         <h2>Verify and Import Session</h2>
+        <p class="section-note">Load an artifact, inspect signer trust, then run dry-run or import directly.</p>
+
         <label for="artifactFileInput">Artifact File (optional)</label>
+        <p class="field-help">You can upload a JSON file or paste raw JSON below.</p>
         <input id="artifactFileInput" type="file" accept=".json,application/json" />
 
         <div class="output-block">
           <label for="artifactInput">Artifact JSON</label>
-          <textarea id="artifactInput" placeholder='{"schema_version":2,...}'></textarea>
+          <textarea id="artifactInput" class="mono artifact-area" placeholder='{"schema_version":2,...}'></textarea>
+        </div>
+
+        <div class="grid-two">
+          <div class="output-block">
+            <label for="importModeSelect">Import Mode</label>
+            <select id="importModeSelect">
+              <option value="rewrite_current_app">Rewrite Current App (default)</option>
+              <option value="exact_replay">Exact Replay</option>
+            </select>
+          </div>
+
+          <div class="output-block">
+            <label for="importTargetUrlInput">Import Target URL (optional)</label>
+            <input id="importTargetUrlInput" type="url" placeholder="https://target.example/" />
+            <p class="field-help">Used in rewrite mode. Leave blank to use active tab URL.</p>
+          </div>
+        </div>
+
+        <div class="checkbox-line">
+          <input id="dryRunCheckbox" type="checkbox" />
+          <label for="dryRunCheckbox">Dry-run preflight (no cookie writes)</label>
         </div>
 
         <div class="row row-actions">
-          <button id="verifyArtifactButton" type="button">Verify Artifact</button>
-          <button id="importSessionButton" type="button">Import Session</button>
+          <button id="verifyArtifactButton" class="btn-secondary" type="button">Verify Artifact</button>
+          <button id="importSessionButton" class="btn-primary" type="button">Import Session</button>
         </div>
 
-        <section id="verifyPanel" class="panel nested hidden">
+        <section id="verifyPanel" class="panel nested summary-panel hidden">
           <h3>Verification</h3>
           <div id="verifySummary" class="meta"></div>
         </section>
 
-        <section id="importReportPanel" class="panel nested hidden">
+        <section id="importReportPanel" class="panel nested summary-panel hidden">
           <h3>Import Report</h3>
           <div id="importSummary" class="meta"></div>
           <ul id="importResultsList" class="result-list"></ul>
+        </section>
+      </section>
+
+      <section id="workspacePanel" class="panel tab-panel hidden">
+        <h2>Workspace</h2>
+        <p class="section-note">Manage artifacts, signer trust, and reusable presets in one place.</p>
+
+        <section class="panel nested workspace-card">
+          <div class="section-head">
+            <h3>Artifact Vault</h3>
+            <button id="refreshVaultButton" class="btn-ghost" type="button">Refresh</button>
+          </div>
+          <div class="row">
+            <input id="vaultSearchInput" type="text" placeholder="Search by host, artifact id, fingerprint" />
+            <button id="searchVaultButton" class="btn-secondary" type="button">Search</button>
+          </div>
+          <ul id="vaultList" class="workspace-list"></ul>
+        </section>
+
+        <section class="panel nested workspace-card">
+          <div class="section-head">
+            <h3>Signer Manager</h3>
+            <button id="refreshSignersButton" class="btn-ghost" type="button">Refresh</button>
+          </div>
+          <ul id="signerList" class="workspace-list"></ul>
+        </section>
+
+        <section class="panel nested workspace-card">
+          <div class="section-head">
+            <h3>Import Presets</h3>
+            <button id="refreshPresetsButton" class="btn-ghost" type="button">Refresh</button>
+          </div>
+          <div class="form-grid">
+            <div>
+              <label for="presetHostInput">Host or URL</label>
+              <input id="presetHostInput" type="text" placeholder="example.com or https://example.com" />
+            </div>
+            <div>
+              <label for="presetModeSelect">Default Mode</label>
+              <select id="presetModeSelect">
+                <option value="rewrite_current_app">Rewrite Current App</option>
+                <option value="exact_replay">Exact Replay</option>
+              </select>
+            </div>
+            <div class="full-width">
+              <label for="presetWarningInput">Warning Hint (optional)</label>
+              <input id="presetWarningInput" type="text" placeholder="Example: run dry-run before importing" />
+            </div>
+          </div>
+          <div class="actions">
+            <button id="savePresetButton" class="btn-primary" type="button">Save Preset</button>
+          </div>
+          <ul id="presetList" class="workspace-list"></ul>
         </section>
       </section>
     </main>

@@ -4,7 +4,7 @@ import { SigningService } from "../src/core/signingService";
 import { isBridgeRequestMessage, MESSAGE_REQUEST_PLATFORM_DATA } from "../src/shared/messages";
 
 describe("legacy v1 compatibility", () => {
-  it("converts v1 payload into importable signed v2 artifact", async () => {
+  it("converts v1 payload into an importable unknown-signer v2 artifact", async () => {
     const signing = new SigningService(null);
     const v1Payload = {
       schema_version: 1,
@@ -38,6 +38,10 @@ describe("legacy v1 compatibility", () => {
 
     const verified = await verifyNormalizedArtifact(normalized.data, signing);
     expect(verified.ok).toBe(true);
+    if (!verified.ok) {
+      return;
+    }
+    expect(verified.data.trust_status).toBe("unknown");
   });
 
   it("keeps legacy platform route request shape valid", () => {

@@ -6,6 +6,7 @@ import type {
   SessionArtifactV2,
   SignatureEnvelopeV2
 } from "../shared/types";
+import { cookieIdentityKey } from "./cookieIdentity";
 
 export function requiredPresence(cookies: CookieMap, requiredCookies: readonly string[]): Record<string, boolean> {
   const presence: Record<string, boolean> = {};
@@ -47,19 +48,49 @@ function isCookieSameSite(value: unknown): value is CookieRecordV2["sameSite"] {
   return value === "no_restriction" || value === "lax" || value === "strict" || value === "unspecified";
 }
 
+function cookieHeaderFromRecords(cookies: CookieRecordV2[]): string {
+  const map: Record<string, string> = {};
+  for (const cookie of cookies) {
+    if (!isObject(cookie)) {
+      continue;
+    }
+    if (typeof cookie.name !== "string" || typeof cookie.value !== "string") {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(map, cookie.name)) {
+      continue;
+    }
+    map[cookie.name] = cookie.value;
+  }
+  return Object.entries(map)
+    .filter(([key]) => key.trim())
+    .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("; ");
+}
+
 export function validateCookieRecordV2(cookie: CookieRecordV2): string[] {
   const issues: string[] = [];
-  if (!cookie.name) {
+  if (!isObject(cookie)) {
+    return ["cookie entry must be an object"];
+  }
+  if (typeof cookie.name !== "string" || cookie.name.length === 0) {
     issues.push("cookie.name is required");
   }
   if (typeof cookie.value !== "string") {
     issues.push("cookie.value must be a string");
   }
-  if (!cookie.domain) {
+  if (typeof cookie.domain !== "string" || cookie.domain.length === 0) {
     issues.push(`cookie.domain is required (${cookie.name || "unknown"})`);
   }
-  if (!cookie.path || !cookie.path.startsWith("/")) {
+  if (typeof cookie.path !== "string" || !cookie.path.startsWith("/")) {
     issues.push(`cookie.path must start with '/' (${cookie.name || "unknown"})`);
+  }
+  if (typeof cookie.secure !== "boolean") {
+    issues.push(`cookie.secure must be a boolean (${cookie.name || "unknown"})`);
+  }
+  if (typeof cookie.httpOnly !== "boolean") {
+    issues.push(`cookie.httpOnly must be a boolean (${cookie.name || "unknown"})`);
   }
   if (!isCookieSameSite(cookie.sameSite)) {
     issues.push(`cookie.sameSite is invalid (${cookie.name || "unknown"})`);
@@ -67,8 +98,29 @@ export function validateCookieRecordV2(cookie: CookieRecordV2): string[] {
   if (cookie.expirationDate !== undefined && (!Number.isFinite(cookie.expirationDate) || cookie.expirationDate <= 0)) {
     issues.push(`cookie.expirationDate is invalid (${cookie.name || "unknown"})`);
   }
-  if (!cookie.storeId) {
+  if (typeof cookie.hostOnly !== "boolean") {
+    issues.push(`cookie.hostOnly must be a boolean (${cookie.name || "unknown"})`);
+  }
+  if (typeof cookie.session !== "boolean") {
+    issues.push(`cookie.session must be a boolean (${cookie.name || "unknown"})`);
+  }
+  if (typeof cookie.storeId !== "string" || cookie.storeId.length === 0) {
     issues.push(`cookie.storeId is required (${cookie.name || "unknown"})`);
+  }
+  if (cookie.partitionKey !== undefined) {
+    if (!isObject(cookie.partitionKey)) {
+      issues.push(`cookie.partitionKey must be an object (${cookie.name || "unknown"})`);
+    } else {
+      if (cookie.partitionKey.topLevelSite !== undefined && typeof cookie.partitionKey.topLevelSite !== "string") {
+        issues.push(`cookie.partitionKey.topLevelSite must be a string (${cookie.name || "unknown"})`);
+      }
+      if (
+        cookie.partitionKey.hasCrossSiteAncestor !== undefined &&
+        typeof cookie.partitionKey.hasCrossSiteAncestor !== "boolean"
+      ) {
+        issues.push(`cookie.partitionKey.hasCrossSiteAncestor must be a boolean (${cookie.name || "unknown"})`);
+      }
+    }
   }
   return issues;
 }
@@ -114,7 +166,10 @@ export function validateSessionArtifactPayloadV2(payload: SessionArtifactPayload
     const seenCookieKeys = new Set<string>();
     for (const cookie of payload.cookies) {
       issues.push(...validateCookieRecordV2(cookie));
-      const key = `${cookie.name}|${cookie.domain}|${cookie.path}`;
+      if (!isObject(cookie)) {
+        continue;
+      }
+      const key = cookieIdentityKey(cookie);
       if (seenCookieKeys.has(key)) {
         issues.push(`duplicate cookie entry detected (${key})`);
       } else {
@@ -124,6 +179,8 @@ export function validateSessionArtifactPayloadV2(payload: SessionArtifactPayload
   }
   if (!payload.derived?.cookie_header) {
     issues.push("derived.cookie_header is required");
+  } else if (Array.isArray(payload.cookies) && payload.derived.cookie_header !== cookieHeaderFromRecords(payload.cookies)) {
+    issues.push("derived.cookie_header must match cookies");
   }
   if (!Number.isInteger(payload.derived?.cookie_count) || (payload.derived?.cookie_count ?? -1) < 0) {
     issues.push("derived.cookie_count must be a non-negative integer");

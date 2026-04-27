@@ -33,16 +33,28 @@ describe("mediumAdapter", () => {
 
     expect(envBlock).toBe(
       [
-        'MEDIUM_SESSION=""',
-        'MEDIUM_SESSION_SID="sid-value"',
-        'MEDIUM_SESSION_UID="uid-value"',
-        'MEDIUM_SESSION_XSRF="xsrf-value"',
-        'MEDIUM_SESSION_CF_CLEARANCE=""',
-        'MEDIUM_SESSION_CFUVID=""',
-        'MEDIUM_CSRF=""',
-        'MEDIUM_USER_REF=""'
+        "MEDIUM_SESSION=''",
+        "MEDIUM_SESSION_SID='sid-value'",
+        "MEDIUM_SESSION_UID='uid-value'",
+        "MEDIUM_SESSION_XSRF='xsrf-value'",
+        "MEDIUM_SESSION_CF_CLEARANCE=''",
+        "MEDIUM_SESSION_CFUVID=''",
+        "MEDIUM_CSRF=''",
+        "MEDIUM_USER_REF=''"
       ].join("\n")
     );
+  });
+
+  it("shell-quotes env block values safely", () => {
+    const envBlock = mediumAdapter.toEnvBlock({
+      sid: "sid-$(echo unsafe)`x`",
+      uid: "u'1",
+      xsrf: "x$1"
+    });
+
+    expect(envBlock).toContain("MEDIUM_SESSION_SID='sid-$(echo unsafe)`x`'");
+    expect(envBlock).toContain("MEDIUM_SESSION_UID='u'\\''1'");
+    expect(envBlock).toContain("MEDIUM_SESSION_XSRF='x$1'");
   });
 
   it("escapes CLI snippet using shell-safe single quote escaping", () => {
