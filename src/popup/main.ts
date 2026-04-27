@@ -173,6 +173,9 @@ function showTab(tab: TabId): void {
   tabExportButton.setAttribute("aria-selected", String(exportActive));
   tabImportButton.setAttribute("aria-selected", String(importActive));
   tabWorkspaceButton.setAttribute("aria-selected", String(workspaceActive));
+  tabExportButton.tabIndex = exportActive ? 0 : -1;
+  tabImportButton.tabIndex = importActive ? 0 : -1;
+  tabWorkspaceButton.tabIndex = workspaceActive ? 0 : -1;
 
   exportPanel.setAttribute("aria-hidden", String(!exportActive));
   importPanel.setAttribute("aria-hidden", String(!importActive));

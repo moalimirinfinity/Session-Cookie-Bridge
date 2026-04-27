@@ -1,193 +1,70 @@
-# Session Cookie Bridge v2
+# Session Cookie Bridge
 
-Private Chromium MV3 extension for best-effort cookie session transfer:
-- Export signed session artifacts from any http(s) site.
-- Verify artifact integrity/signature with signer trust status.
-- Import verified artifacts with rewrite/exact mode, optional dry-run, and per-cookie reporting.
-- Manage artifacts, signers, and import presets in a built-in Workspace.
+Private Chromium MV3 extension for signed cookie-session transfer.
 
-## Sensitive Data Warning
-This extension handles authentication cookies and signed session artifacts.
+Session Cookie Bridge captures browser cookies from a target site, packages them into a signed artifact, verifies signer trust, and imports them into another browser context with controlled rewrite or exact replay modes. It is built for private workflows where session artifacts are handled deliberately, audited locally, and treated as secrets.
 
-- Treat exported JSON as secrets.
-- Do not commit artifacts to git.
-- Rotate sessions immediately if data leaks.
+## Highlights
 
-## Scope and Limits
+- Signed v2 session artifacts with ECDSA P-256 and SHA-256.
+- Universal http(s) cookie export through runtime host permissions.
+- Import modes for current-app rewrite or exact cookie replay.
+- Dry-run preflight with per-cookie import reporting.
+- Local signer trust states: `self`, `trusted`, `unknown`, `blocked`.
+- Workspace tools for artifact history, signer management, and import presets.
+- Legacy v1 Medium artifacts convert to v2 with unknown signer trust.
 
-### In scope
-- Cookie-based session export/import only.
-- Signed artifact integrity checks (ECDSA P-256 + SHA-256).
-- Signer trust model (`self`, `trusted`, `unknown`, `blocked`) with warn-only default.
-- Runtime host permission prompts per target host/domain.
-- Dry-run preflight and vault operation logs.
-- Legacy v1 Medium artifact import compatibility (auto-converted to v2 with unknown signer trust).
+## Security Model
 
-### Out of scope
-- `localStorage`, IndexedDB, service worker token migration.
-- Guaranteed replay on all platforms.
-- Cloud sync/escrow of keys, trust, vault, or presets.
+Exported artifacts contain authentication cookies. Treat them like credentials.
 
-Some sites use device binding, anti-hijack, or server-side checks that can invalidate imported cookies even when import is successful.
+- Do not commit exported artifacts.
+- Share artifacts only through trusted private channels.
+- Rotate affected sessions immediately if an artifact leaks.
+- Storage remains local in `chrome.storage.local`; there is no cloud sync or escrow.
 
-## Architecture
-- `src/shared/types.ts`: v2 artifact schema, trust/vault/preset types, import-mode contracts.
-- `src/shared/messages.ts`: message contracts for export/verify/import/copy + signer/vault/preset APIs.
-- `src/core/signingService.ts`: signing keys, verification, trust store (`trust.v1`), signer management.
-- `src/core/cookieService.ts`: cookie read/set APIs, host-pattern planning, import report generation.
-- `src/core/exportService.ts`: signed v2 export + no-cookie actionable errors + legacy bundle shim.
-- `src/core/importService.ts`: artifact parse, v1 conversion, trust-aware verification, import modes, dry-run.
-- `src/core/workspaceService.ts`: artifact vault (`vault.v1`) and import presets (`presets.v1`).
-- `src/background/index.ts`: typed message router and orchestration.
-- `src/popup/*`: Export, Import, and Workspace UI.
-- `src/platforms/*`: optional legacy profile/adapters (Medium kept for shim/hints).
-
-## Storage Model
-
-Local `chrome.storage.local` keys:
-- `signing.v1`: local ECDSA key pair (`key_id`, public/private JWK).
-- `trust.v1`: signer decisions (`trusted`/`blocked`) + last-seen metadata.
-- `vault.v1`: recent artifacts + last operation metadata/report.
-- `presets.v1`: host-based import defaults and warning hints.
-
-## Permissions Model
-
-Manifest (`MV3`) permissions:
-- `cookies`
-- `clipboardWrite`
-- `downloads`
-- `activeTab`
-- `storage`
-
-Host permissions:
-- `optional_host_permissions: ["*://*/*"]`
-- Runtime prompts are scoped to exact required host patterns.
-
-## Artifact Schema v2
-
-Signed export shape:
-- `schema_version: 2`
-- `artifact_id`
-- `created_at_utc`
-- `source`
-  - `target_url`
-  - `origin`
-  - `captured_by_extension_version`
-- `cookies: CookieRecordV2[]`
-- `derived`
-  - `cookie_header`
-  - `cookie_count`
-- `signature`
-  - `alg: "ECDSA_P256_SHA256"`
-  - `key_id`
-  - `public_key_jwk`
-  - `payload_sha256`
-  - `signature_base64url`
-  - `signed_at_utc`
-
-## Popup Flows
-
-### Export tab
-1. Use active tab URL or enter target URL manually.
-2. Request host permission (exact host pattern).
-3. Export signed artifact.
-4. Copy cookie header / copy JSON / download JSON.
-
-### Import tab
-1. Paste or upload artifact JSON.
-2. Choose import mode:
-   - `rewrite_current_app` (default)
-   - `exact_replay`
-3. Optionally set dry-run preflight.
-4. Verify signature + trust status.
-5. Import session cookies and inspect detailed report.
-
-### Workspace tab
-- Artifact Vault: search, reuse, re-verify, re-import, delete.
-- Signer Manager: mark signers trusted/blocked/none.
-- Import Presets: host-based mode defaults and warning hints.
-
-## Message API
-
-Key request types:
-- `REQUEST_ACTIVE_TAB_CONTEXT`
-- `EXPORT_SESSION`
-- `VERIFY_ARTIFACT`
-- `IMPORT_SESSION` (`import_mode?`, `target_url?`, `dry_run?`)
-- `COPY_FIELD`
-- `LIST_SIGNERS`
-- `SET_SIGNER_TRUST`
-- `LIST_VAULT`
-- `SAVE_TO_VAULT`
-- `DELETE_VAULT_ENTRY`
-- `LIST_PRESETS`
-- `UPSERT_PRESET`
-- `DELETE_PRESET`
-
-Detailed request/response contracts are documented in [docs/API.md](/Users/moalimir/Project%20World/Session-Cookie-Bridge/docs/API.md).
-
-## Build and Load
+## Install
 
 ```bash
 npm install
 npm run build
 ```
 
-Then:
-1. Open `chrome://extensions`
-2. Enable `Developer mode`
-3. `Load unpacked` -> select `dist/`
+Load `dist/` as an unpacked extension from `chrome://extensions`.
 
-## Private ZIP Packaging
+## Private ZIP
 
 ```bash
 npm run package:zip
 ```
 
-The release ZIP is written under `dist/releases/` and is intentionally not committed to git.
-Use `dist/` for local unpacked smoke testing before distributing the ZIP.
+The distributable ZIP is written to `dist/releases/` and is intentionally ignored by git.
 
-## Tests
+## Validate
 
 ```bash
+npx tsc --noEmit
 npm run test
+npm run build
+npm audit --omit=dev
 ```
 
-Coverage includes:
-- Message contract validation (v2 + legacy shim + workspace APIs).
-- Signed export generation and tamper detection.
-- Import verification, trust policy, dry-run behavior, partial-failure behavior.
-- Cookie mapping and host-pattern derivation.
-- Legacy v1 conversion path.
-- Workspace vault/preset persistence behavior.
+## Manual QA
 
-## Release Checklist
+Before distributing a ZIP, smoke test:
 
-1. `npx tsc --noEmit`
-2. `npm run test`
-3. `npm run build`
-4. `npm audit --omit=dev`
-5. `npm run package:zip`
-6. Manual smoke checks:
-   - Export from active signed-in site
-   - Verify unknown signer warning path
-   - Import rewrite mode + exact mode
-   - Dry-run with expected preflight results
-   - Vault re-verify/re-import actions
-   - Signer trust override (`trusted`/`blocked`) behavior
-   - Legacy v1 import reports `legacy_converted: true` and unknown signer trust
+- Export from a signed-in site.
+- Verify signer trust, including unknown and blocked signer paths.
+- Import with rewrite, exact replay, and dry-run modes.
+- Exercise vault load, re-verify, re-import, and delete actions.
+- Create, apply, and delete an import preset.
+- Confirm legacy v1 artifacts import as `legacy_converted: true` with unknown signer trust.
 
-Detailed manual test script is in [docs/MANUAL-QA.md](/Users/moalimir/Project%20World/Session-Cookie-Bridge/docs/MANUAL-QA.md).
+Full API and QA references:
 
-## CI
+- [API Reference](docs/API.md)
+- [Manual QA Checklist](docs/MANUAL-QA.md)
 
-A GitHub Actions workflow is expected at `.github/workflows/ci.yml` to run:
-- typecheck
-- tests
-- build
-- production audit (`npm audit --omit=dev`)
+## Scope
 
-## Dependency Maintenance
-
-- Review `npm audit` results monthly.
-- Prioritize updates for `@crxjs/vite-plugin`, `vitest`, and transitive build-tool dependencies.
+This extension transfers cookie-backed sessions only. It does not migrate `localStorage`, IndexedDB, service worker state, device-bound tokens, or server-side anti-hijack state.

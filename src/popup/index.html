@@ -12,32 +12,36 @@
         <div class="brand-row">
           <img class="brand-icon" src="/icons/icon-32.png" alt="Session Cookie Bridge logo" />
           <div>
-            <h1>Session Cookie Bridge v2</h1>
-            <p class="lead">Secure cookie transfer toolkit for export, verify, import, and workspace ops.</p>
+            <h1>Session Cookie Bridge <span>v2</span></h1>
+            <p class="lead">Signed cookie session transfer</p>
           </div>
         </div>
         <p class="notice warning-line">Sensitive data: treat exported artifacts as secrets.</p>
       </header>
 
-      <nav class="tabs tabs-3" aria-label="Session actions">
-        <button id="tabExportButton" class="tab active" type="button" data-tab="export">Export</button>
-        <button id="tabImportButton" class="tab" type="button" data-tab="import">Import</button>
-        <button id="tabWorkspaceButton" class="tab" type="button" data-tab="workspace">Workspace</button>
+      <nav class="tabs tabs-3" aria-label="Session actions" role="tablist">
+        <button id="tabExportButton" class="tab active" type="button" role="tab" aria-controls="exportPanel" data-tab="export">
+          Export
+        </button>
+        <button id="tabImportButton" class="tab" type="button" role="tab" aria-controls="importPanel" data-tab="import">
+          Import
+        </button>
+        <button id="tabWorkspaceButton" class="tab" type="button" role="tab" aria-controls="workspacePanel" data-tab="workspace">
+          Workspace
+        </button>
       </nav>
 
       <section id="statusPanel" class="panel status info" role="status" aria-live="polite">
         Ready. Choose Export, Import, or Workspace.
       </section>
 
-      <section id="exportPanel" class="panel tab-panel">
+      <section id="exportPanel" class="panel tab-panel" role="tabpanel" aria-labelledby="tabExportButton">
         <h2>Export Signed Session</h2>
-        <p class="section-note">Capture active session cookies from a target site and create a signed artifact.</p>
 
         <label for="targetUrlInput">Target URL</label>
-        <p class="field-help">Use any http(s) site. You can paste a full URL or a domain.</p>
         <div class="row">
-          <input id="targetUrlInput" type="url" placeholder="https://example.com/" />
-          <button id="detectTabButton" class="btn-secondary" type="button">Use Active Tab</button>
+          <input id="targetUrlInput" type="url" placeholder="https://example.com/" autocomplete="off" spellcheck="false" />
+          <button id="detectTabButton" class="btn-secondary" type="button" title="Use active tab URL">Use Active Tab</button>
         </div>
 
         <div class="row row-actions">
@@ -50,12 +54,12 @@
             <label for="cookieHeaderPreview">Cookie Header</label>
             <button id="copyHeaderButton" class="btn-ghost" type="button">Copy Header</button>
           </div>
-          <textarea id="cookieHeaderPreview" class="mono" readonly></textarea>
+          <textarea id="cookieHeaderPreview" class="mono compact-area" readonly spellcheck="false"></textarea>
         </div>
 
         <div class="output-block">
           <label for="fingerprintPreview">Signer Fingerprint</label>
-          <input id="fingerprintPreview" class="mono" type="text" readonly />
+          <input id="fingerprintPreview" class="mono" type="text" readonly spellcheck="false" />
         </div>
 
         <div class="output-block">
@@ -63,7 +67,7 @@
             <label for="artifactPreview">Signed Artifact JSON</label>
             <button id="copyArtifactButton" class="btn-ghost" type="button">Copy JSON</button>
           </div>
-          <textarea id="artifactPreview" class="mono artifact-area" readonly></textarea>
+          <textarea id="artifactPreview" class="mono artifact-area" readonly spellcheck="false"></textarea>
         </div>
 
         <div class="actions solo-action">
@@ -71,17 +75,15 @@
         </div>
       </section>
 
-      <section id="importPanel" class="panel tab-panel hidden">
+      <section id="importPanel" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tabImportButton">
         <h2>Verify and Import Session</h2>
-        <p class="section-note">Load an artifact, inspect signer trust, then run dry-run or import directly.</p>
 
         <label for="artifactFileInput">Artifact File (optional)</label>
-        <p class="field-help">You can upload a JSON file or paste raw JSON below.</p>
         <input id="artifactFileInput" type="file" accept=".json,application/json" />
 
         <div class="output-block">
           <label for="artifactInput">Artifact JSON</label>
-          <textarea id="artifactInput" class="mono artifact-area" placeholder='{"schema_version":2,...}'></textarea>
+          <textarea id="artifactInput" class="mono artifact-area" placeholder='{"schema_version":2,...}' spellcheck="false"></textarea>
         </div>
 
         <div class="grid-two">
@@ -95,8 +97,7 @@
 
           <div class="output-block">
             <label for="importTargetUrlInput">Import Target URL (optional)</label>
-            <input id="importTargetUrlInput" type="url" placeholder="https://target.example/" />
-            <p class="field-help">Used in rewrite mode. Leave blank to use active tab URL.</p>
+            <input id="importTargetUrlInput" type="url" placeholder="https://target.example/" autocomplete="off" spellcheck="false" />
           </div>
         </div>
 
@@ -122,9 +123,8 @@
         </section>
       </section>
 
-      <section id="workspacePanel" class="panel tab-panel hidden">
+      <section id="workspacePanel" class="panel tab-panel hidden" role="tabpanel" aria-labelledby="tabWorkspaceButton">
         <h2>Workspace</h2>
-        <p class="section-note">Manage artifacts, signer trust, and reusable presets in one place.</p>
 
         <section class="panel nested workspace-card">
           <div class="section-head">
@@ -132,7 +132,7 @@
             <button id="refreshVaultButton" class="btn-ghost" type="button">Refresh</button>
           </div>
           <div class="row">
-            <input id="vaultSearchInput" type="text" placeholder="Search by host, artifact id, fingerprint" />
+            <input id="vaultSearchInput" type="search" placeholder="Search host, artifact id, fingerprint" autocomplete="off" spellcheck="false" />
             <button id="searchVaultButton" class="btn-secondary" type="button">Search</button>
           </div>
           <ul id="vaultList" class="workspace-list"></ul>
@@ -154,7 +154,7 @@
           <div class="form-grid">
             <div>
               <label for="presetHostInput">Host or URL</label>
-              <input id="presetHostInput" type="text" placeholder="example.com or https://example.com" />
+              <input id="presetHostInput" type="text" placeholder="example.com" autocomplete="off" spellcheck="false" />
             </div>
             <div>
               <label for="presetModeSelect">Default Mode</label>
@@ -165,7 +165,7 @@
             </div>
             <div class="full-width">
               <label for="presetWarningInput">Warning Hint (optional)</label>
-              <input id="presetWarningInput" type="text" placeholder="Example: run dry-run before importing" />
+              <input id="presetWarningInput" type="text" placeholder="Run dry-run before importing" autocomplete="off" spellcheck="false" />
             </div>
           </div>
           <div class="actions">
