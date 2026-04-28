@@ -29,7 +29,6 @@ import type {
 type StatusKind = "info" | "success" | "warning" | "error";
 type TabId = "export" | "import" | "workspace";
 type IconId =
-  | "chevron"
   | "check"
   | "copy"
   | "download"
@@ -45,8 +44,6 @@ type IconId =
   | "trash"
   | "vault";
 
-const appRoot = mustElement<HTMLElement>("appRoot");
-const panelCollapseButton = mustElement<HTMLButtonElement>("panelCollapseButton");
 const tabExportButton = mustElement<HTMLButtonElement>("tabExportButton");
 const tabImportButton = mustElement<HTMLButtonElement>("tabImportButton");
 const tabWorkspaceButton = mustElement<HTMLButtonElement>("tabWorkspaceButton");
@@ -95,7 +92,6 @@ const savePresetButton = mustElement<HTMLButtonElement>("savePresetButton");
 const presetList = mustElement<HTMLUListElement>("presetList");
 
 let busy = false;
-let isPanelCollapsed = false;
 let hasExportArtifact = false;
 let presetCache: ImportPreset[] = [];
 
@@ -210,14 +206,6 @@ function refreshControlStates(): void {
 function setBusy(nextBusy: boolean): void {
   busy = nextBusy;
   refreshControlStates();
-}
-
-function setPanelCollapsed(nextCollapsed: boolean): void {
-  isPanelCollapsed = nextCollapsed;
-  appRoot.classList.toggle("is-collapsed", isPanelCollapsed);
-  panelCollapseButton.setAttribute("aria-expanded", String(!isPanelCollapsed));
-  panelCollapseButton.setAttribute("aria-label", isPanelCollapsed ? "Expand panel" : "Collapse panel");
-  panelCollapseButton.title = isPanelCollapsed ? "Expand panel" : "Collapse panel";
 }
 
 function showTab(tab: TabId): void {
@@ -777,7 +765,7 @@ function renderVaultEntries(entries: VaultEntry[]): void {
 
   for (const entry of entries) {
     const item = document.createElement("li");
-    item.className = "workspace-item";
+    item.className = "workspace-item vault-item";
 
     const info = document.createElement("div");
     info.className = "workspace-copy";
@@ -911,7 +899,7 @@ function renderSigners(signers: SignerRecord[]): void {
 
   for (const signer of signers) {
     const item = document.createElement("li");
-    item.className = "workspace-item";
+    item.className = "workspace-item signer-item";
 
     const info = document.createElement("div");
     info.className = "workspace-copy";
@@ -1024,7 +1012,7 @@ function renderPresets(presets: ImportPreset[]): void {
 
   for (const preset of presets) {
     const item = document.createElement("li");
-    item.className = "workspace-item";
+    item.className = "workspace-item preset-item";
 
     const info = document.createElement("div");
     info.className = "workspace-copy";
@@ -1144,10 +1132,6 @@ async function handleSavePreset(): Promise<void> {
 }
 
 function bindEvents(): void {
-  panelCollapseButton.addEventListener("click", () => {
-    setPanelCollapsed(!isPanelCollapsed);
-  });
-
   tabExportButton.addEventListener("click", () => {
     showTab("export");
   });
@@ -1213,7 +1197,6 @@ function bindEvents(): void {
 function init(): void {
   setupIconography();
   bindEvents();
-  setPanelCollapsed(false);
   setStatus("info", "Choose Export, Import, or Workspace to get started.");
   setBusy(false);
   clearImportPanels();
